@@ -92,7 +92,7 @@ GROUNDING_SCHEMA = {
 }
 
 
-def spark_ground(key: str, img: Image.Image, targets: list[str]) -> tuple[dict, float]:
+def spark_ground(key: str, img: Image.Image, targets: list[str], effort: str | None = None) -> tuple[dict, float]:
     prompt = (
         "You are helping a user assemble IKEA furniture. Locate each target part in the image.\n"
         "Return one entry per target, in the same order. Use the normalized 0-1000 grid "
@@ -110,6 +110,8 @@ def spark_ground(key: str, img: Image.Image, targets: list[str]) -> tuple[dict, 
         "response_format": {"type": "json_schema", "json_schema": {
             "name": "Grounding", "strict": True, "schema": GROUNDING_SCHEMA}},
     }
+    if effort:
+        body["reasoning_effort"] = effort
     t0 = time.perf_counter()
     r = requests.post(f"{API_BASE}/chat/completions", json=body, timeout=120,
                       headers={"Authorization": f"Bearer {key}"})
@@ -200,6 +202,8 @@ def main():
     ap.add_argument("--target", action="append", default=[], help="要找的零件（中文描述即可，可重複）")
     ap.add_argument("--sam", action="append", default=[], help="SAM 3.1 用的英文名詞片語，例如 'wooden dowel'（可重複）")
     ap.add_argument("--runs", type=int, default=1, help="重複呼叫幾次來量延遲")
+    ap.add_argument("--effort", choices=["minimal", "low", "medium", "high"],
+                    help="Muse Spark 推理強度；越低越快（預設由模型自己決定）")
     args = ap.parse_args()
     if not args.target and not args.sam:
         ap.error("至少給一個 --target 或 --sam")
@@ -211,10 +215,10 @@ def main():
     print(f"圖片 {args.image} → 縮放後 {img.size[0]}x{img.size[1]}")
 
     if args.target:
-        print(f"\n== Muse Spark grounding（{SPARK_MODEL}）==")
+        print(f"\n== Muse Spark grounding（{SPARK_MODEL}，effort={args.effort or '預設'}）==")
         times = []
         for run in range(args.runs):
-            result, dt = spark_ground(key, img, args.target)
+            result, dt = spark_ground(key, img, args.target, args.effort)
             times.append(dt)
             print(f"  第 {run + 1} 次：{dt:.1f} 秒")
         print(f"  畫面：{result['scene']}")
