@@ -27,15 +27,25 @@ steps.json（由說明書轉出、人工確認過的 SOP）
 - [x] `test_assembly.py`：不給說明書，只看照片推理組裝步驟
 - [x] `build_guide.py`：一張照片 → 互動組裝引導網頁（兩個零件發光 + 動畫箭頭，逐步切換）
 - [ ] 說明書 → 步驟
-- [ ] 手機鏡頭版（相機、即時疊加）
+- [x] `server.py` + `static/`：手機 App（拍照 → 分析進度 → 逐步引導），API key 只放在電腦
+- [ ] 即時追蹤（鏡頭移動時發光跟著零件走）
 - [ ] 驗證與修正流程
 - [ ] 語音提問
+
+## 手機試用
+
+```bash
+.venv/Scripts/python server.py
+```
+
+手機連同一個 Wi-Fi，打開終端機印出的網址（例如 `http://192.168.1.172:8000`）。
+「看範例」不呼叫 API，可以先看引導畫面。區網 http 下會用手機內建相機拍照；要在 App 內開即時相機需要 HTTPS。
 
 ## 執行測試腳本
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python -m pip install requests pillow   # macOS/Linux: .venv/bin/python
+.venv/Scripts/python -m pip install requests pillow meta-sam-parser   # macOS/Linux: .venv/bin/python
 cp .env.example .env                                  # 填入 MODEL_API_KEY
 .venv/Scripts/python test_grounding.py samples/parts.jpg \
   --target "最長的木板" --target "木釘" --sam "wooden dowel" --runs 3
@@ -47,4 +57,6 @@ cp .env.example .env                                  # 填入 MODEL_API_KEY
 
 ```bash
 .venv/Scripts/python build_guide.py samples/parts.jpg
-```API key 在 [dev.meta.ai](https://dev.meta.ai) 的 **API keys** 頁建立，請勿提交 `.env`。
+```
+
+API key 在 [dev.meta.ai](https://dev.meta.ai) 的 **API keys** 頁建立，請勿提交 `.env`。

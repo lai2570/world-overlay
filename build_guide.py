@@ -140,7 +140,7 @@ def leak_retry_prompt(i: int, box: PromptBox) -> PromptObject:
 
 
 
-def segment_parts(key: str, img, parts: list[dict]) -> tuple[dict, float]:
+def segment_parts(key: str, img, parts: list[dict], log=print) -> tuple[dict, float]:
     boxes = spark_boxes_to_pixels(parts, img.size)
     result, dt = sam_with_boxes(key, img, boxes)
     masks = {rec.object_id: rec for rec in result.records if rec.kind == "mask"}
@@ -148,7 +148,7 @@ def segment_parts(key: str, img, parts: list[dict]) -> tuple[dict, float]:
     leaky = [(i, part, box) for i, part, box in boxes
              if str(i + 1) in masks and fill_ratio(masks[str(i + 1)], box) > LEAK_FILL]
     if leaky:
-        print(f"    {'、'.join(p['target'] for _, p, _ in leaky)} 疑似描到背景，用中心點重描…")
+        log(f"{'、'.join(p['target'] for _, p, _ in leaky)} 疑似描到背景，用中心點重描")
         retry, dt2 = sam_with_prompts(key, img, [leak_retry_prompt(i, box) for i, _, box in leaky])
         dt += dt2
         for rec in retry.records:
@@ -169,7 +169,23 @@ def segment_parts(key: str, img, parts: list[dict]) -> tuple[dict, float]:
     return shapes, dt
 
 
-def render_html(img, plan: dict, located: dict, shapes: dict, out_path: Path):
+def analyze(key: str, img, log=print) -> tuple[dict, dict, dict]:
+    """完整流程：推理步驟 → 標位置 → 描輪廓。log 用來回報進度（命令列印出來、伺服器給手機看）。"""
+    log("推理組裝步驟")
+    plan, t1 = plan_assembly(key, img)
+    log(f"推理完成：{len(plan['parts'])} 個零件、{len(plan['steps'])} 個步驟（{t1:.0f} 秒）")
+    log("標出零件和接口位置")
+    located, t2 = locate(key, img, plan)
+    log(f"定位完成（{t2:.0f} 秒）")
+    log("描出零件輪廓")
+    shapes, t3 = segment_parts(key, img, located["parts"], log)
+    missing = [p["target"] for p in located["parts"] if p["target"] not in shapes]
+    log(f"輪廓完成：{len(shapes)} 個（{t3:.0f} 秒）" + (f"，沒描到：{'、'.join(missing)}" if missing else ""))
+    return plan, located, shapes
+
+
+def page_data(img, plan: dict, located: dict, shapes: dict) -> dict:
+    """整理成引導畫面（static/guide.js）要的格式，座標換成照片像素。"""
     W, H = img.size
     pt = lambda p: [p[0] * W / 1000, p[1] * H / 1000] if len(p) == 2 else None
     # 接口在照片裡看不到時（例如海綿套內部），箭頭改從零件框的中心出發
@@ -182,48 +198,25 @@ def render_html(img, plan: dict, located: dict, shapes: dict, out_path: Path):
         steps.append({k: s[k] for k in ("part_a", "part_b", "instruction", "why", "confidence")}
                      | {"a": pt(a), "b": pt(b)})
     shapes = {name: sh | {"d": clean_path(sh["d"])} for name, sh in shapes.items()}
-    data = json.dumps({"w": W, "h": H, "goal": plan["goal"], "steps": steps, "shapes": shapes}, ensure_ascii=False)
-    page = TEMPLATE.replace("__IMG__", to_data_url(img)).replace("__DATA__", data.replace("</", "<\\/"))
-    page = page.replace("__GOAL__", html.escape(plan["goal"]))
+    return {"w": W, "h": H, "goal": plan["goal"], "steps": steps, "shapes": shapes}
+
+
+def render_html(img, plan: dict, located: dict, shapes: dict, out_path: Path):
+    data = json.dumps(page_data(img, plan, located, shapes), ensure_ascii=False).replace("</", "<\\/")
+    page = (TEMPLATE.replace("__CSS__", (STATIC / "guide.css").read_text(encoding="utf-8"))
+            .replace("__JS__", (STATIC / "guide.js").read_text(encoding="utf-8"))
+            .replace("__IMG__", to_data_url(img)).replace("__DATA__", data)
+            .replace("__GOAL__", html.escape(plan["goal"])))
     out_path.write_text(page, encoding="utf-8")
 
 
+STATIC = ROOT / "static"
 TEMPLATE = """<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>WORLD OVERLAY 組裝引導</title>
 <style>
-:root{--a:#ffb020;--b:#22d3ee;--bg:#0b0d10;--card:#16191e;--fg:#f2f4f7;--mute:#9aa3ae}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif}
-header{padding:12px 16px 4px;font-size:13px;color:var(--mute)}
-header b{color:var(--fg);letter-spacing:.08em}
-.stage{position:relative;width:100%;max-width:960px;margin:0 auto}
-.stage img,.stage svg{display:block;width:100%;height:auto}
-.stage svg{position:absolute;inset:0;height:100%}
-.part{fill:none;stroke-width:4;stroke-linejoin:round;animation:pulse 1.4s ease-in-out infinite}
-.part.a{stroke:var(--a);filter:drop-shadow(0 0 6px var(--a)) drop-shadow(0 0 16px var(--a))}
-.part.b{stroke:var(--b);filter:drop-shadow(0 0 6px var(--b)) drop-shadow(0 0 16px var(--b));animation-delay:.7s}
-@keyframes pulse{50%{stroke-width:8;opacity:.6}}
-.flow{fill:none;stroke:#fff;stroke-width:5;stroke-linecap:round;stroke-dasharray:14 12;animation:dash 1s linear infinite;
-  filter:drop-shadow(0 0 4px #000)}
-@keyframes dash{to{stroke-dashoffset:-26}}
-.ring{fill:none;stroke:var(--b);stroke-width:4;transform-box:fill-box;transform-origin:center;animation:ring 1.4s ease-out infinite}
-@keyframes ring{from{transform:scale(.4);opacity:1}to{transform:scale(1.8);opacity:0}}
-.card{max-width:960px;margin:0 auto;padding:14px 16px 20px}
-.count{font-size:13px;color:var(--mute)}
-.pair{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0 8px;font-weight:700;font-size:18px}
-.chip{padding:2px 10px;border-radius:999px;border:2px solid}
-.chip.a{border-color:var(--a);color:var(--a)} .chip.b{border-color:var(--b);color:var(--b)}
-.inst{font-size:17px;margin:0 0 8px}
-details{color:var(--mute);font-size:14px} summary{cursor:pointer}
-.conf{display:inline-block;font-size:12px;padding:1px 8px;border-radius:6px;background:#2a2f37;color:var(--mute);margin-left:6px}
-.nav{display:flex;gap:10px;margin-top:14px}
-button{flex:1;padding:14px;border:0;border-radius:12px;font:inherit;font-weight:700;background:#2a2f37;color:var(--fg)}
-button.primary{background:var(--a);color:#111}
-button:disabled{opacity:.35}
-.done{display:none;text-align:center;padding:24px 0;font-size:18px}
-</style></head><body>
+__CSS__</style></head><body>
 <header><b>WORLD OVERLAY</b>　目標：__GOAL__</header>
 <div class="stage">
   <img id="photo" src="__IMG__" alt="零件照片">
@@ -238,71 +231,8 @@ button:disabled{opacity:.35}
   <div class="nav"><button id="prev">上一步</button><button class="primary" id="next">下一步</button></div>
 </div>
 <script>
-const D = __DATA__;
-const NS = "http://www.w3.org/2000/svg";
-const ov = document.getElementById("ov");
-ov.setAttribute("viewBox", `0 0 ${D.w} ${D.h}`);
-const $ = id => document.getElementById(id);
-const CONF = {high: "把握高", medium: "把握中", low: "把握低"};
-let i = Math.min(Math.max((parseInt(location.hash.slice(1)) || 1) - 1, 0), D.steps.length - 1);  // #3 直接開第 3 步
-
-function el(tag, attrs, parent) {
-  const e = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-  (parent || ov).appendChild(e);
-  return e;
-}
-
-function curve(a, b) {
-  // 二次貝茲曲線，往垂直方向彎一點，看起來像「拿起來放過去」
-  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-  const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
-  const k = Math.min(120, len * 0.25);
-  return `M${a[0]} ${a[1]} Q${mx - dy / len * k} ${my + dx / len * k} ${b[0]} ${b[1]}`;
-}
-
-function draw() {
-  const s = D.steps[i];
-  ov.replaceChildren();
-  // 壓暗其他零件：遮罩挖空 A、B 兩個零件
-  const defs = el("defs", {});
-  const mask = el("mask", {id: "hole"}, defs);
-  el("rect", {width: D.w, height: D.h, fill: "#fff"}, mask);
-  for (const name of [s.part_a, s.part_b]) {
-    const sh = D.shapes[name];
-    if (sh) el("path", {d: sh.d, transform: sh.transform, fill: "#000", "fill-rule": "evenodd"}, mask);
-  }
-  el("rect", {width: D.w, height: D.h, fill: "rgba(0,0,0,.55)", mask: "url(#hole)"});
-  for (const [name, cls] of [[s.part_a, "a"], [s.part_b, "b"]]) {
-    const sh = D.shapes[name];
-    if (sh) el("path", {d: sh.d, transform: sh.transform, class: "part " + cls, "vector-effect": "non-scaling-stroke"});
-  }
-  if (s.a && s.b) {
-    const d = curve(s.a, s.b);
-    el("path", {d, class: "flow", id: "route"});
-    el("circle", {cx: s.b[0], cy: s.b[1], r: 22, class: "ring"});
-    const dot = el("circle", {r: 11, fill: "var(--a)", stroke: "#fff", "stroke-width": 3});
-    const mv = el("animateMotion", {dur: "1.8s", repeatCount: "indefinite", path: d,
-      keyPoints: "0;1", keyTimes: "0;1", calcMode: "spline", keySplines: ".45 0 .25 1"}, dot);
-    mv.beginElement && mv.beginElement();
-  }
-  $("count").textContent = `步驟 ${i + 1} / ${D.steps.length}`;
-  $("pa").textContent = s.part_a;
-  $("pb").textContent = s.part_b;
-  $("inst").textContent = s.instruction;
-  $("why").textContent = s.why;
-  $("conf").textContent = CONF[s.confidence] || "";
-  $("prev").disabled = i === 0;
-  $("next").textContent = i === D.steps.length - 1 ? "完成" : "下一步";
-  $("done").style.display = "none";
-}
-
-$("prev").onclick = () => { if (i > 0) { i--; draw(); } };
-$("next").onclick = () => {
-  if (i < D.steps.length - 1) { i++; draw(); }
-  else { ov.replaceChildren(); $("done").style.display = "block"; }
-};
-draw();
+__JS__
+startGuide(__DATA__, parseInt(location.hash.slice(1)));  // #3 直接開第 3 步
 </script>
 </body></html>
 """
@@ -331,23 +261,11 @@ def main():
         cache.write_text(json.dumps({"plan": plan, "located": located, "shapes": shapes}, ensure_ascii=False),
                          encoding="utf-8")
     else:
-        key = load_api_key()
-        print("1/3 Muse Spark 推理組裝步驟…")
-        plan, t1 = plan_assembly(key, img)
-        print(f"    {t1:.1f} 秒，{len(plan['parts'])} 個零件、{len(plan['steps'])} 個步驟")
-        print("2/3 Muse Spark 標出零件和接口位置…")
-        located, t2 = locate(key, img, plan)
-        print(f"    {t2:.1f} 秒")
-        parts = located["parts"]
-        print(f"3/3 SAM 3.1 描出 {len(parts)} 個零件的輪廓…")
-        shapes, t3 = segment_parts(key, img, parts)
-        print(f"    {t3:.1f} 秒，成功 {len(shapes)} 個")
-        missing = [p["target"] for p in parts if p["target"] not in shapes]
-        if missing:
-            print(f"    沒描到：{'、'.join(missing)}（網頁上這些零件只會顯示箭頭）")
+        t0 = time.perf_counter()
+        plan, located, shapes = analyze(load_api_key(), img, log=lambda msg: print(f"  {msg}"))
         cache.write_text(json.dumps({"plan": plan, "located": located, "shapes": shapes}, ensure_ascii=False),
                          encoding="utf-8")
-        print(f"總共 {t1 + t2 + t3:.1f} 秒")
+        print(f"總共 {time.perf_counter() - t0:.1f} 秒")
 
     for n, s in enumerate(plan["steps"], 1):
         print(f"  步驟 {n}：{s['part_a']} → {s['part_b']}｜{s['instruction']}")

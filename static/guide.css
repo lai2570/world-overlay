@@ -1,0 +1,30 @@
+:root{--a:#ffb020;--b:#22d3ee;--bg:#0b0d10;--card:#16191e;--fg:#f2f4f7;--mute:#9aa3ae}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif}
+header{padding:12px 16px 4px;font-size:13px;color:var(--mute)}
+header b{color:var(--fg);letter-spacing:.08em}
+.stage{position:relative;width:100%;max-width:960px;margin:0 auto}
+.stage img,.stage svg{display:block;width:100%;height:auto}
+.stage svg{position:absolute;inset:0;height:100%}
+.part{fill:none;stroke-width:4;stroke-linejoin:round;animation:pulse 1.4s ease-in-out infinite}
+.part.a{stroke:var(--a);filter:drop-shadow(0 0 6px var(--a)) drop-shadow(0 0 16px var(--a))}
+.part.b{stroke:var(--b);filter:drop-shadow(0 0 6px var(--b)) drop-shadow(0 0 16px var(--b));animation-delay:.7s}
+@keyframes pulse{50%{stroke-width:8;opacity:.6}}
+.flow{fill:none;stroke:#fff;stroke-width:5;stroke-linecap:round;stroke-dasharray:14 12;animation:dash 1s linear infinite;
+  filter:drop-shadow(0 0 4px #000)}
+@keyframes dash{to{stroke-dashoffset:-26}}
+.ring{fill:none;stroke:var(--b);stroke-width:4;transform-box:fill-box;transform-origin:center;animation:ring 1.4s ease-out infinite}
+@keyframes ring{from{transform:scale(.4);opacity:1}to{transform:scale(1.8);opacity:0}}
+.card{max-width:960px;margin:0 auto;padding:14px 16px 20px}
+.count{font-size:13px;color:var(--mute)}
+.pair{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:6px 0 8px;font-weight:700;font-size:18px}
+.chip{padding:2px 10px;border-radius:999px;border:2px solid}
+.chip.a{border-color:var(--a);color:var(--a)} .chip.b{border-color:var(--b);color:var(--b)}
+.inst{font-size:17px;margin:0 0 8px}
+details{color:var(--mute);font-size:14px} summary{cursor:pointer}
+.conf{display:inline-block;font-size:12px;padding:1px 8px;border-radius:6px;background:#2a2f37;color:var(--mute);margin-left:6px}
+.nav{display:flex;gap:10px;margin-top:14px}
+button{flex:1;padding:14px;border:0;border-radius:12px;font:inherit;font-weight:700;background:#2a2f37;color:var(--fg)}
+button.primary{background:var(--a);color:#111}
+button:disabled{opacity:.35}
+.done{display:none;text-align:center;padding:24px 0;font-size:18px}

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>WORLD OVERLAY</title>
+<link rel="stylesheet" href="/static/guide.css">
+<style>
+.screen{display:none;min-height:100dvh;flex-direction:column}
+.screen.on{display:flex}
+.hero{flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px 20px;gap:14px}
+.hero h1{margin:0;font-size:28px;letter-spacing:.06em}
+.hero p{margin:0;color:var(--mute)}
+.steps{margin:6px 0 0;padding:0;list-style:none;color:var(--mute);font-size:15px}
+.steps li{padding:6px 0;border-top:1px solid #23272e}
+.steps b{color:var(--a);margin-right:8px}
+.actions{padding:16px 20px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
+.btn{display:block;text-align:center;padding:16px;border-radius:14px;font-weight:700;font-size:17px;border:0;
+  background:#2a2f37;color:var(--fg);cursor:pointer;text-decoration:none}
+.btn.primary{background:var(--a);color:#111}
+input[type=file]{display:none}
+/* 即時相機（只有 HTTPS 才能用） */
+.cam{position:relative;flex:1;background:#000;overflow:hidden}
+.cam video{width:100%;height:100%;object-fit:cover}
+.shutter{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);
+  width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25)}
+.cam .tip{position:absolute;top:16px;left:16px;right:16px;text-align:center;font-size:15px;
+  background:rgba(0,0,0,.55);padding:8px 12px;border-radius:10px}
+.cam .close{position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;border:0;
+  background:rgba(0,0,0,.6);color:#fff;font-size:20px}
+/* 分析中 */
+.scan{position:relative;overflow:hidden}
+.scan img{display:block;width:100%;filter:brightness(.55)}
+.scan::after{content:"";position:absolute;left:0;right:0;height:3px;top:0;background:var(--b);
+  box-shadow:0 0 18px 6px var(--b);animation:scan 2.2s ease-in-out infinite alternate}
+@keyframes scan{to{top:calc(100% - 3px)}}
+.progress{padding:16px 20px}
+.progress h2{margin:0 0 4px;font-size:20px}
+.progress .timer{color:var(--mute);font-size:14px}
+.log{list-style:none;margin:12px 0 0;padding:0;font-size:15px}
+.log li{padding:5px 0;color:var(--mute)}
+.log li::before{content:"✓ ";color:#4ade80}
+.log li:last-child{color:var(--fg)}
+.log li:last-child::before{content:"⋯ ";color:var(--a)}
+.log.finished li:last-child::before{content:"✓ ";color:#4ade80}
+.err{color:#f87171;margin-top:10px}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 4px;font-size:13px;color:var(--mute);gap:12px}
+.topbar b{color:var(--fg);letter-spacing:.08em}
+.topbar button{background:none;border:1px solid #3a404a;color:var(--fg);border-radius:999px;padding:6px 12px;font:inherit;font-size:13px;white-space:nowrap}
+.goal{padding:0 16px 8px;font-size:13px;color:var(--mute)}
+</style></head><body>
+
+<!-- 1. 開始 -->
+<section class="screen on" id="home">
+  <div class="hero">
+    <h1>WORLD OVERLAY</h1>
+    <p>把所有零件攤開，拍一張照片。AI 會判斷組裝順序，一步一步讓要接的兩個零件發光，並用箭頭告訴你怎麼接。</p>
+    <ul class="steps">
+      <li><b>1</b>零件分開攤平，背景單純、光線充足</li>
+      <li><b>2</b>從正上方拍，所有零件都要入鏡</li>
+      <li><b>3</b>等待約 1 分鐘分析</li>
+    </ul>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="shoot">📷 拍零件照片</button>
+    <label class="btn" for="pick">🖼 從相簿選照片</label>
+    <button class="btn" id="sample">看範例（麥克風組）</button>
+    <input type="file" id="snap" accept="image/*" capture="environment">
+    <input type="file" id="pick" accept="image/*">
+  </div>
+</section>
+
+<!-- 1b. 即時相機 -->
+<section class="screen" id="camera">
+  <div class="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="tip">讓所有零件都在畫面裡</div>
+    <button class="close" id="camClose" aria-label="關閉">✕</button>
+    <button class="shutter" id="shutter" aria-label="拍照"></button>
+  </div>
+</section>
+
+<!-- 2. 分析中 -->
+<section class="screen" id="busy">
+  <div class="scan"><img id="busyImg" alt=""></div>
+  <div class="progress">
+    <h2>AI 分析中</h2>
+    <div class="timer" id="timer">0 秒</div>
+    <ul class="log" id="log"></ul>
+    <div class="err" id="err"></div>
+    <div class="nav" id="errNav" style="display:none"><button id="retry">重新拍照</button></div>
+  </div>
+</section>
+
+<!-- 3. 引導 -->
+<section class="screen" id="guide">
+  <div class="topbar"><b>WORLD OVERLAY</b><button id="again">重新拍照</button></div>
+  <div class="goal" id="goal"></div>
+  <div class="stage">
+    <img id="photo" alt="零件照片">
+    <svg id="ov" preserveAspectRatio="none"></svg>
+  </div>
+  <div class="card">
+    <div class="count" id="count"></div>
+    <div class="pair"><span class="chip a" id="pa"></span><span>→</span><span class="chip b" id="pb"></span></div>
+    <p class="inst" id="inst"></p>
+    <details><summary>AI 為什麼這樣判斷<span class="conf" id="conf"></span></summary><p id="why"></p></details>
+    <div class="done" id="done">全部步驟完成 🎉</div>
+    <div class="nav"><button id="prev">上一步</button><button class="primary" id="next">下一步</button></div>
+  </div>
+</section>
+
+<script src="/static/guide.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const MAX_SIDE = 1280;  // 和後端一致；縮小再上傳比較快
+let stream = null, timerId = null, pollId = null;
+
+function show(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
+  window.scrollTo(0, 0);
+}
+
+function passcodeHeaders() {
+  let code = null;
+  try { code = localStorage.getItem("passcode"); } catch (e) {}
+  return code ? {"X-Passcode": code} : {};
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {...opts, headers: {...(opts.headers || {}), ...passcodeHeaders()}});
+  if (res.status === 401) {
+    const code = prompt("請輸入通行碼");
+    if (code) { try { localStorage.setItem("passcode", code); } catch (e) {} return api(path, opts); }
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+// 縮小到 1280，順便依 EXIF 轉正（瀏覽器畫進 canvas 時會套用方向）
+async function toJpeg(source) {
+  const w0 = source.videoWidth || source.naturalWidth || source.width;
+  const h0 = source.videoHeight || source.naturalHeight || source.height;
+  const k = Math.min(1, MAX_SIDE / Math.max(w0, h0));
+  const c = document.createElement("canvas");
+  c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
+  c.getContext("2d").drawImage(source, 0, 0, c.width, c.height);
+  return new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
+}
+
+async function fileToJpeg(file) {
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+  await img.decode();
+  const blob = await toJpeg(img);
+  URL.revokeObjectURL(img.src);
+  return blob;
+}
+
+async function analyze(blob) {
+  const url = URL.createObjectURL(blob);
+  $("busyImg").src = url;
+  $("log").replaceChildren(); $("log").classList.remove("finished");
+  $("err").textContent = ""; $("errNav").style.display = "none";
+  show("busy");
+  const t0 = Date.now();
+  clearInterval(timerId);
+  timerId = setInterval(() => $("timer").textContent = `${Math.round((Date.now() - t0) / 1000)} 秒`, 500);
+  addLog("上傳照片");
+  try {
+    const {job} = await api("/api/analyze", {method: "POST", body: blob, headers: {"Content-Type": "image/jpeg"}});
+    await poll(job, url);
+  } catch (e) { fail(e.message); }
+}
+
+function addLog(msg) {
+  const li = document.createElement("li");
+  li.textContent = msg;
+  $("log").appendChild(li);
+}
+
+function poll(job, url) {
+  return new Promise((resolve) => {
+    let seen = 0;
+    clearInterval(pollId);
+    pollId = setInterval(async () => {
+      let j;
+      try { j = await api(`/api/job?id=${job}`); } catch (e) { return; }  // 網路抖一下就下次再試
+      for (; seen < j.log.length; seen++) addLog(j.log[seen]);
+      if (j.status === "done") { clearInterval(pollId); finish(j.result, url); resolve(); }
+      if (j.status === "error") { clearInterval(pollId); fail(j.error); resolve(); }
+    }, 1000);
+  });
+}
+
+function fail(msg) {
+  clearInterval(timerId);
+  $("err").textContent = `分析失敗：${msg}`;
+  $("errNav").style.display = "flex";
+}
+
+function finish(result, imgUrl) {
+  clearInterval(timerId);
+  $("log").classList.add("finished");
+  if (!result.steps.length) return fail("AI 沒有找到可以組裝的步驟，換個角度再拍一次");
+  $("photo").src = imgUrl;
+  $("goal").textContent = `目標：${result.goal}`;
+  show("guide");
+  startGuide(result, 1);
+}
+
+// 有 HTTPS 才能開即時相機；區網 http 時改用手機內建相機拍照
+async function openCamera() {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return $("snap").click();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment", width: {ideal: 1920}}});
+    $("video").srcObject = stream;
+    show("camera");
+  } catch (e) { $("snap").click(); }
+}
+
+function closeCamera() {
+  stream?.getTracks().forEach(t => t.stop());
+  stream = null;
+}
+
+$("shoot").onclick = openCamera;
+$("camClose").onclick = () => { closeCamera(); show("home"); };
+$("shutter").onclick = async () => { const blob = await toJpeg($("video")); closeCamera(); analyze(blob); };
+for (const id of ["snap", "pick"]) {
+  $(id).onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (f) analyze(await fileToJpeg(f)); };
+}
+$("sample").onclick = async () => {
+  try { const {result, image} = await api("/api/sample"); finish(result, image); }
+  catch (e) { alert(`範例載入失敗：${e.message}`); }
+};
+$("again").onclick = $("retry").onclick = () => show("home");
+</script>
+</body></html>
