@@ -8,6 +8,8 @@
   POST /api/assemble  JSON {parts: [data URL...], manual: data URL 或 null} → {"job": id}
                       一個零件一張照片或一段轉一圈的影片（data:video/...）→ 組裝動畫（parts_guide.py）；
                       去背完就有初步結果，之後每一步的圖陸續補上
+  POST /api/video     body 是影片原檔（不轉 base64，省 1/3）→ {"video": id}；一段影片錄全部零件時用
+  POST /api/assemble  JSON {video: id, manual} → 先切成每個零件一段（video_split.py），後面一樣
   GET  /api/job?id=&v= → {"status": running|done|error, "log": [...], "version": n, "result": {...}}
                       result 只在 version 比 v 新時才附上（結果裡有圖片，避免每秒重傳）
   GET  /api/parts_sample → 不呼叫 API，回傳 out/parts_sample.json 的範例結果
@@ -38,12 +40,16 @@ from urllib.parse import parse_qs, urlparse
 
 import parts_guide
 from clip import load_clip
+from video_split import split_video
 from build_guide import MANUAL_MAX_SIDE, STATIC, analyze, page_data
 from test_grounding import ROOT, load_api_key, load_image, to_data_url
 from tracker import track
 
 MAX_UPLOAD = 150 * 1024 * 1024  # 最多 10 個零件（照片或短片）+ 說明書
 MAX_PARTS = 10
+MAX_VIDEO = 500 * 1024 * 1024  # 一段影片錄全部零件：100 秒 1080p 約 100–200 MB
+MAX_VIDEO_PARTS = 16
+videos: dict[str, bytes] = {}  # 上傳好、等 /api/assemble 取用的整段影片
 APP_OUT = ROOT / "out" / "app"
 SAMPLE = ROOT / "out" / "mic_parts_guide.json"
 SAMPLE_IMG = ROOT / "samples" / "mic_parts.jpg"
@@ -80,7 +86,8 @@ def run_job(job_id: str, photo: bytes, key: str, manual: bytes | None = None):
             job.update(status="error", error=str(e) or e.__class__.__name__)
 
 
-def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | None, key: str):
+def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | None, key: str,
+                 video: bytes | None = None):
     job = jobs[job_id]
 
     def log(msg: str):
@@ -95,10 +102,16 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | 
             job["version"] += 1
 
     try:
-        if any(v for _, v in photos):
-            log("處理零件影片（轉檔、上傳）")
-        with ThreadPoolExecutor(4) as ex:  # 影片要轉檔和上傳，同時做
-            imgs = list(ex.map(lambda p: load_clip(p[0], key) if p[1] else load_image(io.BytesIO(p[0])), photos))
+        if video:
+            imgs = split_video(key, video, log)
+            if len(imgs) < 2:
+                raise RuntimeError(f"影片裡只找到 {len(imgs)} 個零件，請一次拿一個、每個轉幾秒")
+            imgs = imgs[:MAX_VIDEO_PARTS]
+        else:
+            if any(v for _, v in photos):
+                log("處理零件影片（轉檔、上傳）")
+            with ThreadPoolExecutor(4) as ex:  # 影片要轉檔和上傳，同時做
+                imgs = list(ex.map(lambda p: load_clip(p[0], key) if p[1] else load_image(io.BytesIO(p[0])), photos))
         manual_img = load_image(io.BytesIO(manual), MANUAL_MAX_SIDE) if manual else None
         result = parts_guide.analyze(key, imgs, manual_img, log=log, publish=publish)
         publish(result)
@@ -179,11 +192,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path not in ("/api/analyze", "/api/track", "/api/assemble"):
+        if path not in ("/api/analyze", "/api/track", "/api/assemble", "/api/video"):
             return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         if not self.authorized():
             return
         length = int(self.headers.get("Content-Length") or 0)
+        if path == "/api/video":
+            if not 0 < length <= MAX_VIDEO:
+                return self.send_json({"error": f"影片大小不對（上限 {MAX_VIDEO // 1024 // 1024} MB）"}, HTTPStatus.BAD_REQUEST)
+            vid = uuid.uuid4().hex[:8]
+            data = self.rfile.read(length)
+            with jobs_lock:
+                videos[vid] = data
+            return self.send_json({"video": vid})
         if not 0 < length <= MAX_UPLOAD:
             return self.send_json({"error": f"上傳大小不對（上限 {MAX_UPLOAD // 1024 // 1024} MB）"}, HTTPStatus.BAD_REQUEST)
         if path == "/api/track":
@@ -210,16 +231,22 @@ class Handler(BaseHTTPRequestHandler):
     def handle_assemble(self, body: bytes):
         try:
             req = json.loads(body)
-            photos = [(decode_data_url(u), u.startswith("data:video/")) for u in req["parts"]]
+            photos = [(decode_data_url(u), u.startswith("data:video/")) for u in req.get("parts") or []]
             manual = decode_data_url(req["manual"]) if req.get("manual") else None
-        except (ValueError, KeyError, IndexError, TypeError):
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)
-        if not 2 <= len(photos) <= MAX_PARTS:
+        video = None
+        if req.get("video"):
+            with jobs_lock:
+                video = videos.pop(str(req["video"]), None)
+            if video is None:
+                return self.send_json({"error": "找不到上傳的影片，請重新上傳"}, HTTPStatus.BAD_REQUEST)
+        elif not 2 <= len(photos) <= MAX_PARTS:
             return self.send_json({"error": f"零件照片要 2 到 {MAX_PARTS} 張"}, HTTPStatus.BAD_REQUEST)
         job_id = uuid.uuid4().hex[:8]
         with jobs_lock:
             jobs[job_id] = {"status": "running", "log": [], "started": time.time(), "version": 0}
-        threading.Thread(target=run_assemble, args=(job_id, photos, manual, self.server.api_key), daemon=True).start()
+        threading.Thread(target=run_assemble, args=(job_id, photos, manual, self.server.api_key, video), daemon=True).start()
         self.send_json({"job": job_id})
 
     def handle_track(self, body: bytes):

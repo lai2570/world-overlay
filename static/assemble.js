@@ -87,7 +87,7 @@ function startAssembly(D, onStep) {
   function tick(now) {
     const {eA, eB, eR, svg, start, end, rR, rFull, place, spinA, spinB, srcA, srcB, look} = els;
     const total = look + T.fly + (eR ? T.fade + T.hold : T.hold);
-    const t = (now - t0) % total;
+    const t = Math.max(0, now - t0) % total;  // rAF 的時間戳是這一幀開始的時間，可能比剛設的 t0 早
     const fly = ease(clamp((t - look) / T.fly, 0, 1));
     const fade = eR ? clamp((t - look - T.fly) / T.fade, 0, 1) : 0;
     // 影片拍的零件先轉一圈給你看每一面，再停在最清楚的那一面（接口位置是在那一面上找的）

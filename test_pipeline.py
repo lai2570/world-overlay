@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import requests
+import sam_fast
 from meta_sam_parser import (FramePrompt, PromptBox, PromptObject, build_object_prompt,
                              decode_mask_to_raster, decode_mask_to_svg_path,
                              image_segmentation_format, parse_responses_stream)
@@ -79,8 +80,7 @@ def sam_with_prompts(key: str, img: Image.Image, objects: list[PromptObject]):
 def mask_image(rec, size: tuple[int, int]) -> Image.Image:
     """把 box-local 的遮罩貼回整張圖大小的 L 模式圖。"""
     m = rec.mask
-    raster = decode_mask_to_raster(m)
-    local = Image.frombytes("L", (m.width, m.height), bytes(v * 255 for v in raster))
+    local = Image.frombytes("L", (m.width, m.height), sam_fast.raster_255(m))
     b = rec.bounds
     w, h = max(1, round(b.right - b.left)), max(1, round(b.bottom - b.top))
     if local.size != (w, h):

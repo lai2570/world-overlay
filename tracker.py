@@ -6,6 +6,7 @@
 """
 import time
 
+import sam_fast
 from meta_sam_parser import FramePrompt, PromptBox, PromptObject, decode_mask_to_raster, decode_mask_to_svg_path
 from PIL import Image
 
@@ -29,9 +30,9 @@ def padded(box: list[float], size: tuple[int, int]) -> PromptBox:
 
 def mask_info(rec) -> tuple[list[float], float]:
     """遮罩在整張畫面上的外框（像素）和面積（像素數）。"""
-    raster = decode_mask_to_raster(rec.mask)
+    raster = sam_fast.raster(rec.mask)
     w, h = rec.mask.width, rec.mask.height
-    m = Image.frombytes("L", (w, h), bytes(v * 255 for v in raster))
+    m = Image.frombytes("L", (w, h), raster.translate(sam_fast._TO_255))
     bbox = m.getbbox()
     sx = (rec.bounds.right - rec.bounds.left) / w
     sy = (rec.bounds.bottom - rec.bounds.top) / h

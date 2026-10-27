@@ -25,9 +25,10 @@ from pathlib import Path
 
 import requests
 from meta_sam_parser import (FramePrompt, PromptBox, PromptObject, PromptPoint, build_object_prompt,
-                             decode_mask_to_raster, parse_responses_stream, video_segmentation_format)
+                             parse_responses_stream, video_segmentation_format)
 from PIL import Image, ImageChops, ImageDraw, ImageStat
 
+import sam_fast
 from build_guide import MANUAL_MAX_SIDE
 from clip import Clip, load_clip_file
 from test_grounding import API_BASE, GROUNDING_SCHEMA, ROOT, SAM_MODEL, SPARK_MODEL, load_api_key, load_image, to_data_url
@@ -43,6 +44,8 @@ SAM_MAX = 800         # 給 SAM 的裁切圖最長邊：SAM 一次呼叫的時�
 GROUND_EFFORT = "low"  # 找零件框和接口：low 約 6 秒、預設約 9 秒，位置差不多
 SPIN_FRAMES = 12      # 零件影片轉一圈的動畫取幾格
 SPIN_MAX = 360
+SPIN_CANDIDATES = 18  # 從幾格裡挑轉一圈的格子（追蹤漏掉的會被濾掉）
+MAX_VIDEOS = 5        # Muse Spark 一次請求最多幾段影片
 SPIN_MIN_AREA = 0.5  # 轉一圈的格子：面積至少要有最清楚那一格的一半，不然是追蹤漏掉了
 VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"}
 
@@ -129,9 +132,25 @@ def plan(key: str, photos: list, manual=None) -> dict:
     content = [{"type": "text", "text": PLAN_PROMPT.format(n=len(photos), manual_note=note)}]
     if manual:
         content.append(image_part(manual))
+    # 一次請求最多 5 段影片。從同一段錄全部零件的影片切出來的：送整段一次 + 每個零件的時間段和最清楚那一格；
+    # 個別短片超過 5 段：多的只送最清楚那一格
+    sources = list(dict.fromkeys(p.source[0] for p in photos if isinstance(p, Clip) and p.source))
+    for fid in sources:
+        content.append({"type": "text", "text": "Video showing the parts one at a time:"})
+        content.append({"type": "file", "file": {"file_id": fid}})
+    videos = len(sources)
     for i, p in enumerate(photos, 1):
-        content.append({"type": "text", "text": f"Part photo {i}" + (" (video)" if isinstance(p, Clip) else "") + ":"})
-        content.append({"type": "file", "file": {"file_id": p.file_id}} if isinstance(p, Clip) else image_part(p))
+        if isinstance(p, Clip) and p.source:
+            content.append({"type": "text", "text": f"Part photo {i} (shown at {p.source[1]:.0f}-{p.source[2]:.0f} s "
+                                                    "in the video above; its clearest frame):"})
+            content.append(image_part(p.photo))
+        elif isinstance(p, Clip) and videos < MAX_VIDEOS:
+            videos += 1
+            content.append({"type": "text", "text": f"Part photo {i} (video):"})
+            content.append({"type": "file", "file": {"file_id": p.file_id}})
+        else:
+            content.append({"type": "text", "text": f"Part photo {i}:"})
+            content.append(image_part(p.photo if isinstance(p, Clip) else p))
     return spark_json(key, content, PLAN_SCHEMA, "PartsPlan")
 
 
@@ -155,8 +174,7 @@ def cutout(img, full: Image.Image) -> tuple[Image.Image, tuple[int, int]]:
 
 def mask_full(photo, rec) -> Image.Image:
     """SAM 遮罩換成和照片一樣大的 L 圖（零件 255、其他 0）。"""
-    raster = decode_mask_to_raster(rec.mask)
-    m = Image.frombytes("L", (rec.mask.width, rec.mask.height), bytes(v * 255 for v in raster))
+    m = Image.frombytes("L", (rec.mask.width, rec.mask.height), sam_fast.raster_255(rec.mask))
     b = rec.bounds
     m = m.resize((max(1, int(b.right - b.left)), max(1, int(b.bottom - b.top))))
     full = Image.new("L", photo.size, 0)
@@ -220,7 +238,7 @@ def segment_one(key: str, photo, box: PromptBox, point: list[int]) -> Image.Imag
 
 def clip_masks(key: str, clip: Clip, box: PromptBox, point: list[int]) -> dict[int, Image.Image]:
     """SAM 3.1 影片追蹤：在最清楚的那一格給框（和點），整段影片一次請求追蹤完。
-    回傳 {格: 整格大小的遮罩}；用最清楚那一格上和背景差最多的那個提示的追蹤結果。"""
+    回傳 {格: SAM 遮罩紀錄}；用最清楚那一格上和背景差最多的那個提示的追蹤結果。"""
     photo = clip.photo
     W, H = photo.size
     pt = None
@@ -248,7 +266,7 @@ def clip_masks(key: str, clip: Clip, box: PromptBox, point: list[int]) -> dict[i
     if not ok:
         return {}
     best = max(ok.values(), key=lambda t: contrast(photo, mask_full(photo, t[clip.key]), box))
-    return {f: mask_full(clip.frames[f], rec) for f, rec in best.items() if f < len(clip.frames)}
+    return {f: rec for f, rec in best.items() if f < len(clip.frames)}
 
 
 def prepare_part(key: str, src, part: dict, points: list[str]) -> dict:
@@ -266,8 +284,12 @@ def prepare_part(key: str, src, part: dict, points: list[str]) -> dict:
     point = objs[0]["point"] if objs[0]["found"] else []
     spin, views, full = [], [], None
     if clip:
-        masks = clip_masks(key, clip, prompt, point)
-        full = masks.get(clip.key)
+        recs = clip_masks(key, clip, prompt, point)
+        full = mask_full(photo, recs[clip.key]) if clip.key in recs else None
+        # 只解要用的格子（解一格遮罩約 0.5 秒）：平均挑 SPIN_CANDIDATES 格當候選
+        order = sorted(recs)
+        cand = {order[round(n * (len(order) - 1) / max(1, SPIN_CANDIDATES - 1))] for n in range(min(SPIN_CANDIDATES, len(order)))}
+        masks = {f: mask_full(photo, recs[f]) for f in sorted(cand)}  # 每一格大小都一樣，用 photo 只是取尺寸
         if full is not None:
             # 追蹤偶爾只抓到零件的一小塊（例如只剩螺絲）：面積不到最清楚那一格一半的格子不用
             area = lambda m: ImageStat.Stat(m).mean[0] * m.width * m.height

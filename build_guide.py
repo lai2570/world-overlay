@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import requests
+import sam_fast
 from meta_sam_parser import FramePrompt, PromptBox, PromptObject, PromptPoint, decode_mask_to_raster, decode_mask_to_svg_path
 
 from test_grounding import API_BASE, ROOT, SPARK_MODEL, load_api_key, load_image, spark_ground, to_data_url
@@ -142,7 +143,7 @@ LEAK_FILL = 0.8  # 輪廓填滿提示框 80% 以上，多半是連背景（地�
 
 
 def fill_ratio(rec, box: PromptBox) -> float:
-    ones = sum(decode_mask_to_raster(rec.mask))
+    ones = sam_fast.ones(rec.mask)
     scale = ((rec.bounds.right - rec.bounds.left) / rec.mask.width) * ((rec.bounds.bottom - rec.bounds.top) / rec.mask.height)
     return ones * scale / max(1, (box.right - box.left) * (box.bottom - box.top))
 
@@ -185,7 +186,7 @@ def segment_parts(key: str, img, parts: list[dict], log=print) -> tuple[dict, fl
         shapes[part["target"]] = {
             "transform": f"translate({rec.bounds.left} {rec.bounds.top}) scale({sx} {sy})",
             "d": decode_mask_to_svg_path(rec.mask),
-            "area": sum(decode_mask_to_raster(rec.mask)) * sx * sy,  # 即時追蹤用來判斷有沒有描到背景
+            "area": sam_fast.ones(rec.mask) * sx * sy,  # 即時追蹤用來判斷有沒有描到背景
         }
     return shapes, dt
 
