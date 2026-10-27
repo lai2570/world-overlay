@@ -48,8 +48,12 @@ async def _sse_events(resp: requests.Response):
 
 
 def sam_with_boxes(key: str, img: Image.Image, boxes: list[tuple[int, dict, PromptBox]]):
-    prompt = build_object_prompt(size=img.size, objects=[
+    return sam_with_prompts(key, img, [
         PromptObject(id=i + 1, prompts=[FramePrompt(frame=0, box=box)]) for i, _, box in boxes])
+
+
+def sam_with_prompts(key: str, img: Image.Image, objects: list[PromptObject]):
+    prompt = build_object_prompt(size=img.size, objects=objects)
     body = {
         "model": SAM_MODEL,
         "stream": True,
