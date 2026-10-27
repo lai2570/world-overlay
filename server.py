@@ -5,13 +5,19 @@
   .venv/Scripts/python server.py --port 9000
 
 分析要 1 分鐘左右，所以用「建立工作 → 輪詢進度」：
+  POST /api/assemble  JSON {parts: [data URL...], manual: data URL 或 null} → {"job": id}
+                      一個零件一張照片 → 組裝動畫（parts_guide.py）；去背完就有初步結果，之後每一步的圖陸續補上
+  GET  /api/job?id=&v= → {"status": running|done|error, "log": [...], "version": n, "result": {...}}
+                      result 只在 version 比 v 新時才附上（結果裡有圖片，避免每秒重傳）
+  GET  /api/parts_sample → 不呼叫 API，回傳 out/parts_sample.json 的範例結果
+  舊版「一張照片」流程（static/photo.html）：
   POST /api/analyze   body 為 JPEG，或 JSON {image, manual}（都是 data URL，manual 可省略）→ {"job": id}
-  GET  /api/job?id=   → {"status": running|done|error, "log": [...], "result": {...}}
   GET  /api/sample    → 不呼叫 API，直接回傳 out/mic_parts_guide.json 的範例結果
 設定環境變數 APP_PASSCODE 時，請求要帶 X-Passcode 標頭（放到網路上時避免別人花你的額度）。
 """
 import argparse
 import base64
+import copy
 import io
 import json
 import os
@@ -28,14 +34,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import parts_guide
 from build_guide import MANUAL_MAX_SIDE, STATIC, analyze, page_data
 from test_grounding import ROOT, load_api_key, load_image, to_data_url
 from tracker import track
 
-MAX_UPLOAD = 15 * 1024 * 1024
+MAX_UPLOAD = 30 * 1024 * 1024  # 最多 10 張零件照 + 說明書
+MAX_PARTS = 10
 APP_OUT = ROOT / "out" / "app"
 SAMPLE = ROOT / "out" / "mic_parts_guide.json"
 SAMPLE_IMG = ROOT / "samples" / "mic_parts.jpg"
+PARTS_SAMPLE = ROOT / "out" / "parts_sample.json"
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
                  ".js": "text/javascript; charset=utf-8"}
 
@@ -66,6 +75,39 @@ def run_job(job_id: str, photo: bytes, key: str, manual: bytes | None = None):
         traceback.print_exc()
         with jobs_lock:
             job.update(status="error", error=str(e) or e.__class__.__name__)
+
+
+def run_assemble(job_id: str, photos: list[bytes], manual: bytes | None, key: str):
+    job = jobs[job_id]
+
+    def log(msg: str):
+        with jobs_lock:
+            job["log"].append(msg)
+        print(f"[{job_id}] {msg}")
+
+    def publish(result: dict):
+        snap = copy.deepcopy(result)
+        with jobs_lock:
+            job["result"] = snap
+            job["version"] += 1
+
+    try:
+        imgs = [load_image(io.BytesIO(b)) for b in photos]
+        manual_img = load_image(io.BytesIO(manual), MANUAL_MAX_SIDE) if manual else None
+        result = parts_guide.analyze(key, imgs, manual_img, log=log, publish=publish)
+        publish(result)
+        APP_OUT.mkdir(parents=True, exist_ok=True)
+        (APP_OUT / f"{job_id}_parts.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        with jobs_lock:
+            job.update(status="done", seconds=round(time.time() - job["started"]))
+    except Exception as e:  # 回報給手機，不讓工作卡在 running
+        traceback.print_exc()
+        with jobs_lock:
+            job.update(status="error", error=str(e) or e.__class__.__name__)
+
+
+def decode_data_url(url: str) -> bytes:
+    return base64.b64decode(url.split(",", 1)[1])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -110,13 +152,18 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/job":
             if not self.authorized():
                 return
-            job_id = parse_qs(url.query).get("id", [""])[0]
+            q = parse_qs(url.query)
+            job_id, since = q.get("id", [""])[0], int(q.get("v", ["0"])[0] or 0)
             with jobs_lock:
                 job = dict(jobs.get(job_id) or {}, log=list((jobs.get(job_id) or {}).get("log", [])))
             if not job:
                 return self.send_json({"error": "找不到這個工作"}, HTTPStatus.NOT_FOUND)
             job.pop("started", None)
+            if job.get("version", 0) <= since and since:
+                job.pop("result", None)  # 手機已經有這一版
             return self.send_json(job)
+        if url.path == "/api/parts_sample":
+            return self.send_json({"result": json.loads(PARTS_SAMPLE.read_text(encoding="utf-8"))})
         if url.path == "/api/sample":
             saved = json.loads(SAMPLE.read_text(encoding="utf-8"))
             img = load_image(SAMPLE_IMG)
@@ -126,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path not in ("/api/analyze", "/api/track"):
+        if path not in ("/api/analyze", "/api/track", "/api/assemble"):
             return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         if not self.authorized():
             return
@@ -135,6 +182,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "照片大小不對（上限 15 MB）"}, HTTPStatus.BAD_REQUEST)
         if path == "/api/track":
             return self.handle_track(self.rfile.read(length))
+        if path == "/api/assemble":
+            return self.handle_assemble(self.rfile.read(length))
         body = self.rfile.read(length)
         if self.headers.get("Content-Type", "").startswith("application/json"):
             # {image: 零件照 data URL, manual: 說明書照 data URL 或 null}
@@ -150,6 +199,21 @@ class Handler(BaseHTTPRequestHandler):
         with jobs_lock:
             jobs[job_id] = {"status": "running", "log": [], "started": time.time()}
         threading.Thread(target=run_job, args=(job_id, photo, self.server.api_key, manual), daemon=True).start()
+        self.send_json({"job": job_id})
+
+    def handle_assemble(self, body: bytes):
+        try:
+            req = json.loads(body)
+            photos = [decode_data_url(u) for u in req["parts"]]
+            manual = decode_data_url(req["manual"]) if req.get("manual") else None
+        except (ValueError, KeyError, IndexError, TypeError):
+            return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)
+        if not 2 <= len(photos) <= MAX_PARTS:
+            return self.send_json({"error": f"零件照片要 2 到 {MAX_PARTS} 張"}, HTTPStatus.BAD_REQUEST)
+        job_id = uuid.uuid4().hex[:8]
+        with jobs_lock:
+            jobs[job_id] = {"status": "running", "log": [], "started": time.time(), "version": 0}
+        threading.Thread(target=run_assemble, args=(job_id, photos, manual, self.server.api_key), daemon=True).start()
         self.send_json({"job": job_id})
 
     def handle_track(self, body: bytes):

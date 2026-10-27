@@ -6,130 +6,107 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%23ffb020' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/guide.css">
 <style>
-[hidden]{display:none!important}  /* guide.css 的 .stage img{display:block} 會蓋過 hidden 屬性 */
+[hidden]{display:none!important}
 .screen{display:none;min-height:100dvh;flex-direction:column}
 .screen.on{display:flex}
-.hero{flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px 20px;gap:14px}
+.hero{padding:24px 20px 8px;display:flex;flex-direction:column;gap:12px}
 .hero h1{margin:0;font-size:28px;letter-spacing:.06em}
 .hero p{margin:0;color:var(--mute)}
-.steps{margin:6px 0 0;padding:0;list-style:none;color:var(--mute);font-size:15px}
-.steps li{padding:6px 0;border-top:1px solid #23272e}
-.steps b{color:var(--a);margin-right:8px}
-.actions{padding:16px 20px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
-.btn{display:block;text-align:center;padding:16px;border-radius:14px;font-weight:700;font-size:17px;border:0;
-  background:#2a2f37;color:var(--fg);cursor:pointer;text-decoration:none}
-.btn.primary{background:var(--a);color:#111}
+.label{font-size:14px;color:var(--mute);margin:6px 0 -4px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile{position:relative;aspect-ratio:1;border:2px dashed #3a404a;border-radius:12px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;color:var(--mute);font-size:13px;text-align:center;overflow:hidden;cursor:pointer;gap:2px}
+.tile b{color:var(--fg);font-size:22px;font-weight:400}
+.tile.filled{border-style:solid;border-color:#3a404a}
+.tile.manual.filled{border-color:var(--b)}
+.tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.tile .n{position:absolute;left:5px;top:5px;background:rgba(0,0,0,.7);color:#fff;font-size:12px;padding:0 7px;border-radius:8px}
+.tile .x{position:absolute;top:4px;right:4px;width:26px;height:26px;padding:0;border-radius:50%;background:rgba(0,0,0,.7);color:#fff;flex:none;font-weight:400}
 input[type=file]{display:none}
-.slots{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.slot{position:relative;aspect-ratio:3/4;border:2px dashed #3a404a;border-radius:14px;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:6px;color:var(--mute);font-size:14px;text-align:center;overflow:hidden;cursor:pointer}
-.slot b{color:var(--fg);font-size:16px}
-.slot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.slot.filled{border-style:solid;border-color:var(--a)}
-.slot .tag{position:absolute;left:6px;bottom:6px;background:rgba(0,0,0,.7);color:#fff;padding:2px 8px;border-radius:8px;font-size:12px}
-.slot .clear{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;border:0;background:rgba(0,0,0,.7);color:#fff}
+.actions{margin-top:auto;padding:16px 20px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
+.btn{display:block;text-align:center;padding:16px;border-radius:14px;font-weight:700;font-size:17px;border:0;background:#2a2f37;color:var(--fg);cursor:pointer}
+.btn.primary{background:var(--a);color:#111}
 .btn:disabled{opacity:.4}
-/* 即時相機（只有 HTTPS 才能用） */
-.cam{position:relative;flex:1;background:#000;overflow:hidden}
-.cam video{width:100%;height:100%;object-fit:cover}
-.shutter{position:absolute;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);
-  width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25)}
-.cam .tip{position:absolute;top:16px;left:16px;right:16px;text-align:center;font-size:15px;
-  background:rgba(0,0,0,.55);padding:8px 12px;border-radius:10px}
-.cam .close{position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;border:0;
-  background:rgba(0,0,0,.6);color:#fff;font-size:20px}
 /* 分析中 */
-.scan{position:relative;overflow:hidden}
-.scan img,.scan video{display:block;width:100%;filter:brightness(.55)}
-.scan::after{content:"";position:absolute;left:0;right:0;height:3px;top:0;background:var(--b);
-  box-shadow:0 0 18px 6px var(--b);animation:scan 2.2s ease-in-out infinite alternate}
-@keyframes scan{to{top:calc(100% - 3px)}}
-.progress{padding:16px 20px}
+.progress{padding:20px}
 .progress h2{margin:0 0 4px;font-size:20px}
 .progress .timer{color:var(--mute);font-size:14px}
+.thumbs{display:flex;gap:6px;overflow-x:auto;margin:14px 0 4px}
+.thumbs img{height:64px;border-radius:8px;opacity:.7}
 .log{list-style:none;margin:12px 0 0;padding:0;font-size:15px}
 .log li{padding:5px 0;color:var(--mute)}
 .log li::before{content:"✓ ";color:#4ade80}
 .log li:last-child{color:var(--fg)}
 .log li:last-child::before{content:"⋯ ";color:var(--a)}
-.log.finished li:last-child::before{content:"✓ ";color:#4ade80}
 .err{color:#f87171;margin-top:10px}
+/* 動畫 */
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 4px;font-size:13px;color:var(--mute);gap:12px}
 .topbar b{color:var(--fg);letter-spacing:.08em}
-.topbar button{background:none;border:1px solid #3a404a;color:var(--fg);border-radius:999px;padding:6px 12px;font:inherit;font-size:13px;white-space:nowrap}
+.topbar button{flex:none;background:none;border:1px solid #3a404a;color:var(--fg);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:400}
 .goal{padding:0 16px 8px;font-size:13px;color:var(--mute)}
-.tools{display:flex;gap:8px}
-.topbar button.on{background:var(--b);border-color:var(--b);color:#111}
-.stage video{display:block;width:100%;height:auto}
-.live-tip{position:absolute;left:12px;right:12px;bottom:12px;text-align:center;font-size:14px;
-  background:rgba(0,0,0,.65);padding:8px 12px;border-radius:10px}
-.live-tip .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#f87171;margin-right:6px;
-  animation:blink 1s infinite}
-@keyframes blink{50%{opacity:.2}}
+.stage-wrap{position:relative;margin:0 12px}
+#stage{position:relative;height:min(62vh,560px);border-radius:16px;overflow:hidden;
+  background:radial-gradient(ellipse at 60% 45%,#2a2f37,#14171c 75%)}
+.asm{position:absolute;object-fit:contain;user-select:none;pointer-events:none}
+.asm.r,.asm.b:not(.cut){border-radius:10px}
+.asm.a{filter:drop-shadow(0 0 5px var(--a)) drop-shadow(0 0 14px var(--a));z-index:3}
+.asm.b.cut{filter:drop-shadow(0 0 5px var(--b)) drop-shadow(0 0 12px var(--b))}
+.asm.r{z-index:4}
+.asm-ov{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;transition:opacity .2s}
+.gen-tip{position:absolute;left:10px;right:10px;bottom:10px;z-index:5;text-align:center;font-size:13px;background:rgba(0,0,0,.65);padding:6px 10px;border-radius:10px}
+.nav button.small{flex:.6}
 </style></head><body>
 
-<!-- 1. 開始 -->
+<!-- 1. 拍照 -->
 <section class="screen on" id="home">
   <div class="hero">
     <h1>WORLD OVERLAY</h1>
-    <p>拍說明書和零件各一張，AI 會對照說明書，一步一步讓要接的兩個零件發光，用動畫告訴你哪個裝在哪。</p>
-    <div class="slots">
-      <label class="slot" id="manualSlot" for="manualIn"><b>📖 說明書</b>組裝圖那一頁<br>（可略過）</label>
-      <label class="slot" id="partsSlot" for="partsIn"><b>🔩 零件</b>攤平、從正上方拍<br>所有零件都要入鏡</label>
-    </div>
-    <ul class="steps">
-      <li><b>1</b>零件分開攤平，背景單純、光線充足</li>
-      <li><b>2</b>沒有說明書也可以，AI 會自己推理怎麼裝</li>
-      <li><b>3</b>分析約 1 分鐘</li>
-    </ul>
+    <p>一個零件拍一張照片，AI 會判斷怎麼裝，做出零件飛過去接上的動畫，並畫出每一步裝好的樣子。</p>
+    <div class="label">說明書（可略過）</div>
+    <div class="grid"><label class="tile manual" id="manualTile" for="manualIn"><b>📖</b>拍說明書</label></div>
+    <div class="label">零件（一個零件一張，最多 10 張）</div>
+    <div class="grid" id="partsGrid"><label class="tile" id="addTile" for="partsIn"><b>＋</b>拍零件</label></div>
   </div>
   <div class="actions">
-    <button class="btn primary" id="go" disabled>先拍零件照片</button>
+    <button class="btn primary" id="go" disabled>至少拍 2 個零件</button>
     <button class="btn" id="sample">看範例（麥克風組）</button>
     <input type="file" id="manualIn" accept="image/*">
-    <input type="file" id="partsIn" accept="image/*">
+    <input type="file" id="partsIn" accept="image/*" multiple>
   </div>
 </section>
 
 <!-- 2. 分析中 -->
 <section class="screen" id="busy">
-  <div class="scan"><img id="busyImg" alt=""></div>
   <div class="progress">
     <h2>AI 分析中</h2>
     <div class="timer" id="timer">0 秒</div>
+    <div class="thumbs" id="thumbs"></div>
     <ul class="log" id="log"></ul>
     <div class="err" id="err"></div>
-    <div class="nav" id="errNav" style="display:none"><button id="retry">回首頁</button></div>
+    <div class="nav" id="errNav" hidden><button id="retry">回首頁</button></div>
   </div>
 </section>
 
-<!-- 3. 引導 -->
-<section class="screen" id="guide">
-  <div class="topbar"><b>WORLD OVERLAY</b>
-    <span class="tools"><button id="liveBtn" hidden>🎥 即時鏡頭</button><button id="again">重新開始</button></span></div>
+<!-- 3. 組裝動畫 -->
+<section class="screen" id="play">
+  <div class="topbar"><b>WORLD OVERLAY</b><button id="again">重新開始</button></div>
   <div class="goal" id="goal"></div>
-  <div class="stage">
-    <img id="photo" alt="零件照片">
-    <video id="liveVideo" playsinline muted autoplay hidden></video>
-    <svg id="ov" preserveAspectRatio="none"></svg>
-    <div class="live-tip" id="liveTip" hidden></div>
-  </div>
+  <div class="stage-wrap"><div id="stage"></div><div class="gen-tip" id="genTip" hidden>AI 正在畫這一步裝好的樣子…</div></div>
   <div class="card">
     <div class="count" id="count"></div>
     <div class="pair"><span class="chip a" id="pa"></span><span>→</span><span class="chip b" id="pb"></span></div>
     <p class="inst" id="inst"></p>
     <details><summary>AI 為什麼這樣判斷<span class="conf" id="conf"></span></summary><p id="why"></p></details>
     <div class="done" id="done">全部步驟完成 🎉</div>
-    <div class="nav"><button id="prev">上一步</button><button class="primary" id="next">下一步</button></div>
+    <div class="nav"><button id="prev">上一步</button><button class="small" id="replay">↻</button><button class="primary" id="next">下一步</button></div>
   </div>
 </section>
 
-<script src="/static/guide.js"></script>
-<script src="/static/motion.js"></script>
+<script src="/static/assemble.js"></script>
 <script>
 const $ = id => document.getElementById(id);
-const MAX_SIDE = 1280;  // 和後端一致；縮小再上傳比較快
-let timerId = null, pollId = null;
+const MAX_SIDE = 1280, MANUAL_MAX_SIDE = 1600, MAX_PARTS = 10;  // 和後端一致
+let timerId = null, pollId = null, player = null;
 
 function show(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
@@ -154,256 +131,123 @@ async function api(path, opts = {}) {
 }
 
 // 縮小再上傳，順便依 EXIF 轉正（瀏覽器畫進 canvas 時會套用方向）
-async function toJpeg(source, maxSide = MAX_SIDE) {
-  const w0 = source.videoWidth || source.naturalWidth || source.width;
-  const h0 = source.videoHeight || source.naturalHeight || source.height;
-  const k = Math.min(1, maxSide / Math.max(w0, h0));
-  const c = document.createElement("canvas");
-  c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
-  c.getContext("2d").drawImage(source, 0, 0, c.width, c.height);
-  return new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
-}
-
-async function fileToJpeg(file, maxSide) {
+async function fileToDataUrl(file, maxSide) {
   const img = new Image();
   img.src = URL.createObjectURL(file);
   await img.decode();
-  const blob = await toJpeg(img, maxSide);
+  const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
   URL.revokeObjectURL(img.src);
-  return blob;
+  return c.toDataURL("image/jpeg", 0.88);
 }
 
-const blobToDataUrl = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
+// ---------- 拍照 ----------
+let manual = null;
+const parts = [];
 
-async function analyze(blob, manual) {
-  const url = URL.createObjectURL(blob);
-  $("busyImg").src = url;
-  $("log").replaceChildren(); $("log").classList.remove("finished");
-  $("err").textContent = ""; $("errNav").style.display = "none";
-  show("busy");
-  const t0 = Date.now();
-  clearInterval(timerId);
-  timerId = setInterval(() => $("timer").textContent = `${Math.round((Date.now() - t0) / 1000)} 秒`, 500);
-  addLog(manual ? "上傳說明書和零件照片" : "上傳零件照片");
-  try {
-    const body = JSON.stringify({image: await blobToDataUrl(blob), manual: manual ? await blobToDataUrl(manual) : null});
-    const {job} = await api("/api/analyze", {method: "POST", body, headers: {"Content-Type": "application/json"}});
-    await poll(job, url);
-  } catch (e) { fail(e.message); }
+function renderTiles() {
+  const mt = $("manualTile");
+  mt.classList.toggle("filled", !!manual);
+  mt.innerHTML = manual ? "" : "<b>📖</b>拍說明書";
+  if (manual) {
+    const im = document.createElement("img"); im.src = manual;
+    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", "移除說明書");
+    x.onclick = e => { e.preventDefault(); manual = null; renderTiles(); };
+    mt.append(im, x);
+  }
+  const grid = $("partsGrid");
+  grid.querySelectorAll(".tile.filled").forEach(t => t.remove());
+  parts.forEach((src, n) => {
+    const t = document.createElement("div"); t.className = "tile filled";
+    const im = document.createElement("img"); im.src = src;
+    const num = document.createElement("span"); num.className = "n"; num.textContent = n + 1;
+    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", `移除零件 ${n + 1}`);
+    x.onclick = () => { parts.splice(n, 1); renderTiles(); };
+    t.append(im, num, x);
+    grid.insertBefore(t, $("addTile"));
+  });
+  $("addTile").hidden = parts.length >= MAX_PARTS;
+  $("go").disabled = parts.length < 2;
+  $("go").textContent = parts.length < 2 ? "至少拍 2 個零件"
+    : `${manual ? "對照說明書" : "不看說明書"}，分析 ${parts.length} 個零件`;
 }
 
+$("manualIn").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (f) { manual = await fileToDataUrl(f, MANUAL_MAX_SIDE); renderTiles(); }
+};
+$("partsIn").onchange = async e => {
+  const files = [...e.target.files].slice(0, MAX_PARTS - parts.length); e.target.value = "";
+  for (const f of files) parts.push(await fileToDataUrl(f, MAX_SIDE));
+  renderTiles();
+};
+
+// ---------- 分析 ----------
 function addLog(msg) {
   const li = document.createElement("li");
   li.textContent = msg;
   $("log").appendChild(li);
 }
 
-function poll(job, url) {
-  return new Promise((resolve) => {
-    let seen = 0;
-    clearInterval(pollId);
-    pollId = setInterval(async () => {
-      let j;
-      try { j = await api(`/api/job?id=${job}`); } catch (e) { return; }  // 網路抖一下就下次再試
-      for (; seen < j.log.length; seen++) addLog(j.log[seen]);
-      if (j.status === "done") { clearInterval(pollId); finish(j.result, url); resolve(); }
-      if (j.status === "error") { clearInterval(pollId); fail(j.error); resolve(); }
-    }, 1000);
-  });
-}
-
 function fail(msg) {
-  clearInterval(timerId);
+  clearInterval(timerId); clearInterval(pollId);
   $("err").textContent = `分析失敗：${msg}`;
-  $("errNav").style.display = "flex";
+  $("errNav").hidden = false;
 }
 
-let guide = null, photoData = null, looks = {};
-
-function finish(result, imgUrl) {
+async function analyze() {
+  $("log").replaceChildren(); $("err").textContent = ""; $("errNav").hidden = true;
+  $("thumbs").replaceChildren(...parts.map(src => Object.assign(document.createElement("img"), {src})));
+  show("busy");
+  const t0 = Date.now();
   clearInterval(timerId);
-  $("log").classList.add("finished");
-  if (!result.steps.length) return fail("AI 沒有找到可以組裝的步驟，換個角度再拍一次");
-  stopLive();
-  $("photo").src = imgUrl;
-  $("goal").textContent = `目標：${result.goal}`;
-  show("guide");
-  // 照片模式的資料留一份，關掉即時鏡頭時換回來
-  photoData = {w: result.w, h: result.h, shapes: result.shapes, boxes: result.boxes};
-  looks = result.looks || {};  // 零件外觀描述，跟丟時讓 AI 依描述重新找
-  guide = startGuide(result, 1, () => live && live.stepChanged());
-  // 即時鏡頭還不夠準（手機移動時 AI 回應跟不上），先關掉入口；網址加 #live 可以開來測試
-  $("liveBtn").hidden = !(location.hash === "#live" && window.isSecureContext && navigator.mediaDevices?.getUserMedia);
-}
-
-// ---------- 即時鏡頭：畫面比對補償手機移動 + 每隔幾秒請 SAM 重新描輪廓 ----------
-const REFRESH_GAP = 1200;  // 兩次 SAM 之間至少間隔（毫秒），省額度
-let live = null;
-
-// from：鏡頭掃描留下的 {stream, snap, w, h}，result：那一格的分析結果（框和輪廓就是這一格的座標）
-async function startLive(from, result) {
-  const video = $("liveVideo");
-  let s = from && from.stream;
-  if (!s) {
-    try {
-      s = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment", width: {ideal: 1920}}});
-    } catch (e) { return alert(`無法開啟相機：${e.message}`); }
-  }
-  video.srcObject = s;
-  await video.play().catch(() => {});
-  if (!video.videoWidth) await new Promise(r => video.addEventListener("loadedmetadata", r, {once: true}));
-  const k = Math.min(1, MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
-  const fw = Math.round(video.videoWidth * k), fh = Math.round(video.videoHeight * k);
-
-  live = {
-    stream: s, motion: new MotionTracker(), areas: {}, boxes: {}, tracked: new Set(), busy: false, last: 0, raf: 0, stopped: false,
-    gen: 0,  // 換步驟就加一，還在路上的舊步驟回應直接丟掉
-    stepChanged() {
-      this.gen++; this.last = 0;
-      // 有掃描基準時，新步驟的零件立刻用掃描那一格的輪廓顯示（平移改成相對掃描那一格）
-      const a = this.anchor, est = a && a.motion.estimate($("liveVideo"));
-      if (est && est.reliable) {
-        this.motion.setKeyframe(a.motion.key);
-        this.boxes = {...a.boxes};
-        this.tracked = new Set(Object.keys(a.boxes));
-        guide.update({shapes: a.shapes, boxes: a.boxes});
-        guide.setOffset(est.dx, est.dy);
-      }
-    },
-  };
-  $("photo").hidden = true; video.hidden = false;
-  $("liveBtn").classList.add("on"); $("liveBtn").textContent = "🎥 即時中";
-  if (from && result && from.w === fw && from.h === fh) {
-    // 分析的就是這個鏡頭的畫面：輪廓直接用，平移相對掃描那一格計算
-    live.motion.setKeyframe(from.snap);
-    // 掃描那一格留著當基準：之後換步驟，新零件從這裡的框加上平移開始找，不用請 AI 重新找
-    live.anchor = {motion: new MotionTracker(), boxes: result.boxes, shapes: result.shapes};
-    live.anchor.motion.setKeyframe(from.snap);
-    live.boxes = {...result.boxes};
-    for (const [n, sh] of Object.entries(result.shapes)) if (sh.area) live.areas[n] = sh.area;
-    for (const n in result.boxes) live.tracked.add(n);
-    guide.update({w: fw, h: fh, shapes: result.shapes, boxes: result.boxes, live: true});
-    tip("追蹤中", false);
-  } else {
-    // 換成鏡頭畫面座標；照片上的輪廓位置對不上，先清掉，等第一次追蹤
-    guide.update({w: fw, h: fh, shapes: {}, boxes: {}, live: true});
-    tip("對準所有零件，尋找中…", true);
-  }
-
-  const frame = () => {
-    if (live.stopped) return;
-    const est = live.motion.estimate(video);
-    if (est) {
-      guide.setOffset(est.dx, est.dy);
-      if (!est.reliable) live.forceRelocate = true;  // 移太多，下次直接重新找
-    }
-    if (!live.busy && Date.now() - live.last > REFRESH_GAP) refresh(video, fw, fh, est);
-    live.raf = setTimeout(frame, 80);  // 約每秒 12 次
-  };
-  frame();
-}
-
-async function refresh(video, fw, fh, est) {
-  const L = live;  // 中途關掉即時鏡頭時 live 會變 null 或換成新的
-  L.busy = true;
-  const s = guide.step(), names = [s.part_a, s.part_b];
-  const c = document.createElement("canvas");
-  c.width = fw; c.height = fh;
-  c.getContext("2d").drawImage(video, 0, 0, fw, fh);
-  const snap = live.motion.snapshot(c);
-  // 上一格的框加上目前估算的平移 = 這一格的位置；沒追過或要求重新找的給 null
-  const dx = est ? est.dx : 0, dy = est ? est.dy : 0;
-  const shift = (b, x, y) => [b[0] + x, b[1] + y, b[2] + x, b[3] + y];
-  let fromAnchor = null;  // 目前畫面相對掃描那一格的平移，算一次就好
-  const parts = names.map(n => {
-    let box = null;
-    if (!live.forceRelocate && live.tracked.has(n)) box = shift(live.boxes[n], dx, dy);
-    else if (live.anchor && live.anchor.boxes[n]) {
-      fromAnchor = fromAnchor || live.anchor.motion.estimate(c) || {reliable: false};
-      if (fromAnchor.reliable) box = shift(live.anchor.boxes[n], fromAnchor.dx, fromAnchor.dy);
-    }
-    return {name: n, look: looks[n] || "", area: live.areas[n] || null, box};
-  });
-  live.forceRelocate = false;
-  const gen = live.gen;
+  timerId = setInterval(() => $("timer").textContent = `${Math.round((Date.now() - t0) / 1000)} 秒`, 500);
+  addLog(manual ? "上傳說明書和零件照片" : "上傳零件照片");
   try {
-    const r = await api("/api/track", {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({image: c.toDataURL("image/jpeg", 0.8), parts})});
-    if (L.stopped || gen !== L.gen) return;  // 已換步驟，這份結果不是目前要的零件
-    // 描到背景的零件沿用上一次的輪廓，平移到這一格（送出去的框就是平移後的位置）
-    const prevShapes = guide.data().shapes;
-    for (const n of r.kept || []) {
-      const p = parts.find(q => q.name === n), old = prevShapes[n];
-      if (!p || !p.box || !old) continue;
-      r.shapes[n] = {...old, transform: `translate(${dx} ${dy}) ${old.transform}`};
-      r.boxes[n] = p.box;
+    const {job} = await api("/api/assemble", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({manual, parts})});
+    poll(job);
+  } catch (e) { fail(e.message); }
+}
+
+// 第一步的資料一到就開始播；後面的組裝結果圖陸續補上
+function poll(job) {
+  let seen = 0, version = 0;
+  clearInterval(pollId);
+  pollId = setInterval(async () => {
+    let j;
+    try { j = await api(`/api/job?id=${job}&v=${version}`); } catch (e) { return; }  // 網路抖一下就下次再試
+    for (; seen < j.log.length; seen++) addLog(j.log[seen]);
+    if (j.result) {
+      version = j.version;
+      if (!player) play(j.result); else player.update(j.result);
     }
-    Object.assign(live.areas, r.areas);
-    live.boxes = r.boxes;  // 只保留這一格的框；其他零件的舊框屬於別的畫面，平移對不上
-    live.tracked = new Set(names.filter(n => r.boxes[n]));
-    live.motion.setKeyframe(snap);  // 新輪廓屬於這一格，之後的平移都相對它計算
-    guide.update({shapes: r.shapes, boxes: r.boxes});
-    tip(r.lost.length ? `找不到：${r.lost.join("、")}，請讓它入鏡` : `追蹤中・${r.seconds} 秒更新一次`, !!r.lost.length);
-  } catch (e) {
-    if (!L.stopped) tip(`追蹤失敗：${e.message}`, true);
-  } finally {
-    L.busy = false; if (gen === L.gen) L.last = Date.now();
-  }
+    if (j.status === "done") { clearInterval(pollId); clearInterval(timerId); }
+    if (j.status === "error") { if (player) { clearInterval(pollId); } else fail(j.error); }
+  }, 1000);
 }
 
-function tip(msg, warn) {
-  $("liveTip").hidden = false;
-  $("liveTip").innerHTML = `${warn ? "" : '<span class="dot"></span>'}${msg}`;
+function play(result) {
+  if (!result.steps.length) return fail("AI 沒有找到可以組裝的步驟");
+  clearInterval(timerId);
+  $("goal").textContent = `目標：${result.goal}`;
+  show("play");
+  player = startAssembly(result);
+  window.player = player;
 }
 
-function stopLive() {
-  if (!live) return;
-  live.stopped = true;
-  clearTimeout(live.raf);
-  live.stream.getTracks().forEach(t => t.stop());
-  live = null;
-  $("liveVideo").hidden = true; $("photo").hidden = false; $("liveTip").hidden = true;
-  $("liveBtn").classList.remove("on"); $("liveBtn").textContent = "🎥 即時鏡頭";
-  if (guide && photoData) guide.update({...photoData, live: false});
-}
-
-$("liveBtn").onclick = () => live ? stopLive() : startLive();
-document.addEventListener("visibilitychange", () => { if (document.hidden) stopLive(); });
-
-// 兩張照片：說明書（可略過）和零件。選好先縮小，按開始分析才上傳
-const MANUAL_MAX_SIDE = 1600;  // 說明書字小，解析度給高一點（和後端一致）
-const picked = {manual: null, parts: null};
-
-function setSlot(kind, blob) {
-  picked[kind] = blob;
-  const slot = $(kind + "Slot");
-  for (const sel of ["img", ".tag", ".clear"]) slot.querySelector(sel)?.remove();
-  slot.classList.toggle("filled", !!blob);
-  if (blob) {
-    const img = document.createElement("img");
-    img.src = URL.createObjectURL(blob);
-    const tag = document.createElement("span");
-    tag.className = "tag"; tag.textContent = kind === "manual" ? "說明書" : "零件";
-    const x = document.createElement("button");
-    x.className = "clear"; x.textContent = "✕"; x.setAttribute("aria-label", "移除");
-    x.onclick = e => { e.preventDefault(); setSlot(kind, null); };
-    slot.append(img, tag, x);
-  }
-  $("go").disabled = !picked.parts;
-  $("go").textContent = !picked.parts ? "先拍零件照片" : picked.manual ? "對照說明書開始分析" : "開始分析（不看說明書）";
-}
-
-for (const kind of ["manual", "parts"]) {
-  $(kind + "In").onchange = async e => {
-    const f = e.target.files[0]; e.target.value = "";
-    if (f) setSlot(kind, await fileToJpeg(f, kind === "manual" ? MANUAL_MAX_SIDE : MAX_SIDE));
-  };
-}
-$("go").onclick = () => analyze(picked.parts, picked.manual);
+$("go").onclick = analyze;
 $("sample").onclick = async () => {
-  try { const {result, image} = await api("/api/sample"); finish(result, image); }
+  try { const {result} = await api("/api/parts_sample"); player = null; play(result); }
   catch (e) { alert(`範例載入失敗：${e.message}`); }
 };
-$("again").onclick = $("retry").onclick = () => { stopLive(); show("home"); };
+$("again").onclick = $("retry").onclick = () => {
+  clearInterval(pollId); clearInterval(timerId);
+  player && player.stop(); player = null;
+  show("home");
+};
+renderTiles();
 </script>
 </body></html>

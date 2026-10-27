@@ -33,6 +33,17 @@ steps.json（由說明書轉出、人工確認過的 SOP）
 - [ ] 驗證與修正流程
 - [ ] 語音提問
 
+## 主要流程：一個零件一張照片 → 組裝動畫（`parts_guide.py`）
+
+1. **Muse Spark** 看所有零件照片（和說明書，可省略），排出組裝步驟；每一步把零件 A 裝到零件 B 或前面完成的組合件上
+2. **Muse Spark** 找零件框和接口點 → **SAM 3.1** 剪成去背圖（框、框＋點兩種提示一起送，留下和背景差最多的那個）
+3. **Muse Image** 每一步把 A 裝到 B 上，生成裝好的照片；裝到組合件時照著前一步的生成圖修改，前後一致
+4. 手機動畫（`static/assemble.js`）：A 的去背圖飛到 B 的接口 → 淡入生成的組裝結果 → 放大
+
+約 45 秒開始播第一步，之後每一步的結果圖陸續補上（6 個零件全部約 2 分 20 秒）。
+命令列：`.venv/Scripts/python parts_guide.py samples/mic_each/*.jpg --manual samples/mic_manual.jpg`
+舊版「一張照片標出零件」流程在 `/static/photo.html`。
+
 ## 手機試用
 
 ```bash
