@@ -1,14 +1,15 @@
 // 組裝動畫：零件 A 的去背圖飛到 B（零件去背圖或前一步的組合件）的接口，接著淡入 Muse Image 生成的組裝結果。
 // parts_guide.py 的結果格式：
 //   D = {goal, steps: [{part_a, part_b, instruction, why, confidence, a_scale, onto_step,
-//                       a_img, a_pt, b_img, b_pt, result}], images: {key: data URL}, pending}
+//                       a_img, a_pt, b_img, b_pt, result}], images: {key: data URL}, pending,
+//        spins: {零件名稱: [轉一圈的去背圖 data URL...]}}（零件是用影片拍的才有 spins）
 //   a_pt / b_pt 是接口在圖片裡的相對位置（0–1），可能是 null（AI 沒找到，改用圖片中心）。
 // 頁面上需要這些 id：stage count pa pb inst why conf prev next replay done genTip
 function startAssembly(D, onStep) {
   const $ = id => document.getElementById(id);
   const stage = $("stage");
   const CONF = {high: "把握高", medium: "把握中", low: "把握低"};
-  const T = {look: 900, fly: 1500, fade: 700, hold: 1800};  // 各段時間（毫秒）
+  const T = {look: 900, spin: 1800, fly: 1500, fade: 700, hold: 1800};  // 各段時間（毫秒）；spin：零件是影片拍的就先轉一圈
   const LEFT = 0.36;  // 左邊放零件 A 的區域寬度比例；B 和結果圖放右邊
   let i = 0, raf = 0, t0 = 0, els = null;
 
@@ -43,7 +44,11 @@ function startAssembly(D, onStep) {
     const eB = srcB && img(srcB, "asm b" + (s.b_img.startsWith("part:") ? " cut" : ""));
     const eA = srcA && img(srcA, "asm a cut");
     const eR = srcR && img(srcR, "asm r");
-    await Promise.all([eA, eB, eR].filter(Boolean).map(e => e.decode().catch(() => {})));
+    const spins = D.spins || {};
+    const spinA = eA && spins[s.part_a] || null;
+    const spinB = eB && s.b_img.startsWith("part:") && spins[s.part_b] || null;
+    const spinEls = [...(spinA || []), ...(spinB || [])].map(src => Object.assign(new Image(), {src}));  // 先載入，轉的時候才不會閃
+    await Promise.all([eA, eB, eR, ...spinEls].filter(Boolean).map(e => e.decode().catch(() => {})));
     if (stage.dataset.step !== String(i)) return;  // 等圖片時已經換步驟
 
     const right = {x: W * LEFT, y: pad, w: W * (1 - LEFT) - pad, h: H - 2 * pad};
@@ -74,17 +79,24 @@ function startAssembly(D, onStep) {
     const place = (e, r) => { e.style.left = r.x + "px"; e.style.top = r.y + "px"; e.style.width = r.w + "px"; e.style.height = r.h + "px"; };
     if (eB) place(eB, rB);
     if (eR) { place(eR, rR); eR.style.opacity = 0; }
-    els = {eA, eB, eR, svg, start, end, rR, rFull, place};
+    els = {eA, eB, eR, svg, start, end, rR, rFull, place, spinA, spinB, srcA, srcB, look: spinA || spinB ? T.spin : T.look};
     t0 = performance.now();
     raf = requestAnimationFrame(tick);
   }
 
   function tick(now) {
-    const {eA, eB, eR, svg, start, end, rR, rFull, place} = els;
-    const total = T.look + T.fly + (eR ? T.fade + T.hold : T.hold);
+    const {eA, eB, eR, svg, start, end, rR, rFull, place, spinA, spinB, srcA, srcB, look} = els;
+    const total = look + T.fly + (eR ? T.fade + T.hold : T.hold);
     const t = (now - t0) % total;
-    const fly = ease(clamp((t - T.look) / T.fly, 0, 1));
-    const fade = eR ? clamp((t - T.look - T.fly) / T.fade, 0, 1) : 0;
+    const fly = ease(clamp((t - look) / T.fly, 0, 1));
+    const fade = eR ? clamp((t - look - T.fly) / T.fade, 0, 1) : 0;
+    // 影片拍的零件先轉一圈給你看每一面，再停在最清楚的那一面（接口位置是在那一面上找的）
+    const turn = (e, frames, still) => {
+      const src = t < look ? frames[Math.floor(t / look * frames.length) % frames.length] : still;
+      if (e.getAttribute("src") !== src) e.src = src;
+    };
+    if (spinA) turn(eA, spinA, srcA);
+    if (spinB) turn(eB, spinB, srcB);
     if (eA) {
       // 位置走弧線：中間往上抬一點，看起來像拿起來放過去
       const lift = Math.sin(fly * Math.PI) * 60;
@@ -97,7 +109,7 @@ function startAssembly(D, onStep) {
     if (eB) eB.style.opacity = 1 - fade;
     if (eR) {
       eR.style.opacity = fade;
-      const grow = ease(clamp((t - T.look - T.fly - T.fade) / 600, 0, 1));
+      const grow = ease(clamp((t - look - T.fly - T.fade) / 600, 0, 1));
       place(eR, {x: lerp(rR.x, rFull.x, grow), y: lerp(rR.y, rFull.y, grow), w: lerp(rR.w, rFull.w, grow), h: lerp(rR.h, rFull.h, grow)});
     }
     svg.style.opacity = fly < 1 ? 1 : 0;

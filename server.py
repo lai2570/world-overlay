@@ -6,7 +6,8 @@
 
 分析要 1 分鐘左右，所以用「建立工作 → 輪詢進度」：
   POST /api/assemble  JSON {parts: [data URL...], manual: data URL 或 null} → {"job": id}
-                      一個零件一張照片 → 組裝動畫（parts_guide.py）；去背完就有初步結果，之後每一步的圖陸續補上
+                      一個零件一張照片或一段轉一圈的影片（data:video/...）→ 組裝動畫（parts_guide.py）；
+                      去背完就有初步結果，之後每一步的圖陸續補上
   GET  /api/job?id=&v= → {"status": running|done|error, "log": [...], "version": n, "result": {...}}
                       result 只在 version 比 v 新時才附上（結果裡有圖片，避免每秒重傳）
   GET  /api/parts_sample → 不呼叫 API，回傳 out/parts_sample.json 的範例結果
@@ -29,17 +30,19 @@ import threading
 import time
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import parts_guide
+from clip import load_clip
 from build_guide import MANUAL_MAX_SIDE, STATIC, analyze, page_data
 from test_grounding import ROOT, load_api_key, load_image, to_data_url
 from tracker import track
 
-MAX_UPLOAD = 30 * 1024 * 1024  # 最多 10 張零件照 + 說明書
+MAX_UPLOAD = 150 * 1024 * 1024  # 最多 10 個零件（照片或短片）+ 說明書
 MAX_PARTS = 10
 APP_OUT = ROOT / "out" / "app"
 SAMPLE = ROOT / "out" / "mic_parts_guide.json"
@@ -77,7 +80,7 @@ def run_job(job_id: str, photo: bytes, key: str, manual: bytes | None = None):
             job.update(status="error", error=str(e) or e.__class__.__name__)
 
 
-def run_assemble(job_id: str, photos: list[bytes], manual: bytes | None, key: str):
+def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | None, key: str):
     job = jobs[job_id]
 
     def log(msg: str):
@@ -92,7 +95,10 @@ def run_assemble(job_id: str, photos: list[bytes], manual: bytes | None, key: st
             job["version"] += 1
 
     try:
-        imgs = [load_image(io.BytesIO(b)) for b in photos]
+        if any(v for _, v in photos):
+            log("處理零件影片（轉檔、上傳）")
+        with ThreadPoolExecutor(4) as ex:  # 影片要轉檔和上傳，同時做
+            imgs = list(ex.map(lambda p: load_clip(p[0], key) if p[1] else load_image(io.BytesIO(p[0])), photos))
         manual_img = load_image(io.BytesIO(manual), MANUAL_MAX_SIDE) if manual else None
         result = parts_guide.analyze(key, imgs, manual_img, log=log, publish=publish)
         publish(result)
@@ -179,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length") or 0)
         if not 0 < length <= MAX_UPLOAD:
-            return self.send_json({"error": "照片大小不對（上限 15 MB）"}, HTTPStatus.BAD_REQUEST)
+            return self.send_json({"error": f"上傳大小不對（上限 {MAX_UPLOAD // 1024 // 1024} MB）"}, HTTPStatus.BAD_REQUEST)
         if path == "/api/track":
             return self.handle_track(self.rfile.read(length))
         if path == "/api/assemble":
@@ -204,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
     def handle_assemble(self, body: bytes):
         try:
             req = json.loads(body)
-            photos = [decode_data_url(u) for u in req["parts"]]
+            photos = [(decode_data_url(u), u.startswith("data:video/")) for u in req["parts"]]
             manual = decode_data_url(req["manual"]) if req.get("manual") else None
         except (ValueError, KeyError, IndexError, TypeError):
             return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)

@@ -11,8 +11,10 @@
 
 用法：
   .venv/Scripts/python parts_guide.py samples/mic_each/*.jpg [--manual samples/mic_manual.jpg]
+  零件也可以是拿著轉一圈的短片（.mp4/.mov）：Spark 直接看影片，SAM 3.1 整段追蹤，動畫裡零件會轉一圈
 """
 import argparse
+import asyncio
 import base64
 import io
 import json
@@ -22,18 +24,27 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import requests
-from meta_sam_parser import FramePrompt, PromptBox, PromptObject, PromptPoint, decode_mask_to_raster
+from meta_sam_parser import (FramePrompt, PromptBox, PromptObject, PromptPoint, build_object_prompt,
+                             decode_mask_to_raster, parse_responses_stream, video_segmentation_format)
 from PIL import Image, ImageChops, ImageDraw, ImageStat
 
 from build_guide import MANUAL_MAX_SIDE
-from test_grounding import API_BASE, GROUNDING_SCHEMA, ROOT, SPARK_MODEL, load_api_key, load_image, to_data_url
+from clip import Clip, load_clip_file
+from test_grounding import API_BASE, GROUNDING_SCHEMA, ROOT, SAM_MODEL, SPARK_MODEL, load_api_key, load_image, to_data_url
 from build_guide import LEAK_FILL, fill_ratio, leak_retry_prompt
-from test_pipeline import sam_with_prompts
+from test_pipeline import _sse_events, sam_with_prompts
 
 IMAGE_MODEL = "muse-image-1.0"
 CUTOUT_MAX = 640      # 去背圖最長邊（像素），手機顯示夠用，回傳資料也不會太大
 RESULT_MAX = 900      # 生成的組裝結果最長邊
 BOX_PAD = 0.04        # Spark 框往外擴一點再給 SAM
+CROP_PAD = 0.2        # 只把框附近裁下來給 SAM（框再往外 20%）
+SAM_MAX = 800         # 給 SAM 的裁切圖最長邊：SAM 一次呼叫的時間主要是上傳，1280 約 3–4 秒、640 約 1.5 秒
+GROUND_EFFORT = "low"  # 找零件框和接口：low 約 6 秒、預設約 9 秒，位置差不多
+SPIN_FRAMES = 12      # 零件影片轉一圈的動畫取幾格
+SPIN_MAX = 360
+SPIN_MIN_AREA = 0.5  # 轉一圈的格子：面積至少要有最清楚那一格的一半，不然是追蹤漏掉了
+VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"}
 
 PLAN_SCHEMA = {
     "type": "object",
@@ -77,7 +88,8 @@ PLAN_SCHEMA = {
 
 PLAN_PROMPT = (
     "Each of the {n} part photos shows one part of a product to be assembled (photos are numbered from 1 in the "
-    "order given{manual_note}). Work out how to physically assemble them. List every part with the photo it "
+    "order given{manual_note}). Some parts are short videos of the part being turned around in a hand instead of "
+    "a photo; look at every side in them, since threads and sockets are often on the back. Work out how to physically assemble them. List every part with the photo it "
     "appears in. Then give the mounting steps in order. Each step attaches part_a either onto a single part "
     "(onto_step = 0, part_b = that part) or onto the assembly finished in an earlier step (onto_step = that step "
     "number, part_b = the part of that assembly that part_a connects to). Every part should be used. "
@@ -91,8 +103,18 @@ def spark_json(key: str, content: list, schema: dict, name: str, effort: str | N
             "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}}
     if effort:
         body["reasoning_effort"] = effort
-    r = requests.post(f"{API_BASE}/chat/completions", json=body, timeout=300,
-                      headers={"Authorization": f"Bearer {key}"})
+    for attempt in range(3):  # 偶爾斷線或回 5xx（影片的請求比較久，比較常遇到），重試
+        try:
+            r = requests.post(f"{API_BASE}/chat/completions", json=body, timeout=300,
+                              headers={"Authorization": f"Bearer {key}"})
+        except requests.ConnectionError:
+            if attempt == 2:
+                raise RuntimeError("Muse Spark 連線中斷，請再試一次")
+            time.sleep(2 + 3 * attempt)
+            continue
+        if r.status_code < 500 and r.status_code != 429:
+            break
+        time.sleep(2 + 3 * attempt)
     if not r.ok:
         raise RuntimeError(f"Muse Spark 呼叫失敗 HTTP {r.status_code}：{r.text[:300]}")
     return json.loads(r.json()["choices"][0]["message"]["content"])
@@ -107,22 +129,24 @@ def plan(key: str, photos: list, manual=None) -> dict:
     content = [{"type": "text", "text": PLAN_PROMPT.format(n=len(photos), manual_note=note)}]
     if manual:
         content.append(image_part(manual))
-    content += [image_part(p) for p in photos]
+    for i, p in enumerate(photos, 1):
+        content.append({"type": "text", "text": f"Part photo {i}" + (" (video)" if isinstance(p, Clip) else "") + ":"})
+        content.append({"type": "file", "file": {"file_id": p.file_id}} if isinstance(p, Clip) else image_part(p))
     return spark_json(key, content, PLAN_SCHEMA, "PartsPlan")
 
 
-def ground(key: str, img, targets: list[str]) -> list[dict]:
+def ground(key: str, img, targets: list[str], effort: str | None = GROUND_EFFORT) -> list[dict]:
     prompt = ("Locate each target in the image. Return one entry per target, in the same order, on the normalized "
               "0-1000 grid where (0,0) is the top-left corner. Box the whole object for a part; for a connection "
               "feature give the point on it. If a target is not visible, set found=false and use empty arrays. "
               "Write scene and reason in Traditional Chinese.\n\nTargets:\n"
               + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(targets)))
-    return spark_json(key, [{"type": "text", "text": prompt}, image_part(img)], GROUNDING_SCHEMA, "Grounding")["objects"]
+    return spark_json(key, [{"type": "text", "text": prompt}, image_part(img)], GROUNDING_SCHEMA, "Grounding",
+                      effort)["objects"]
 
 
-def cutout(img, rec) -> tuple[Image.Image, tuple[int, int]]:
-    """SAM 遮罩 → 裁到零件範圍的去背圖，和它在原照片的左上角位置。"""
-    full = mask_full(img, rec)
+def cutout(img, full: Image.Image) -> tuple[Image.Image, tuple[int, int]]:
+    """整張照片大小的遮罩 → 裁到零件範圍的去背圖，和它在原照片的左上角位置。"""
     rgba = img.convert("RGBA")
     rgba.putalpha(full)
     bbox = full.getbbox() or (0, 0, *img.size)
@@ -154,26 +178,84 @@ def contrast(photo, full: Image.Image, box: PromptBox) -> float:
     return sum((a - b) ** 2 for a, b in zip(inside, bg)) ** .5
 
 
-def segment_one(key: str, photo, box: PromptBox, point: list[int]):
-    """一次 SAM 呼叫試兩種提示：只給框、框 + 零件上的點，留下和背景差最多的那個。
+def sam_prompts(box: PromptBox, point, frame: int = 0) -> list[PromptObject]:
+    """兩種提示一起送：只給框、框 + 零件上的點，之後留下和背景差最多的那個。
     只給框時深色零件放在淺色地板上常描成地板；C 型夾這種中間空心的零件，點又常落在空隙裡。"""
+    objs = [PromptObject(id=1, prompts=[FramePrompt(frame=frame, box=box)])]
+    if point:
+        objs.append(PromptObject(id=2, prompts=[FramePrompt(frame=frame, box=box, points=[point])]))
+    return objs
+
+
+def segment_one(key: str, photo, box: PromptBox, point: list[int]) -> Image.Image | None:
+    """SAM 描出一個零件，回傳整張照片大小的遮罩。只送框附近、縮到 SAM_MAX 的裁切圖：
+    SAM 一次呼叫的時間大多花在上傳，圖越小越快；去背圖最後也只用到 CUTOUT_MAX。"""
     W, H = photo.size
-    objs = [PromptObject(id=1, prompts=[FramePrompt(frame=0, box=box)])]
+    bw, bh = box.right - box.left, box.bottom - box.top
+    crop_box = (max(0, int(box.left - bw * CROP_PAD)), max(0, int(box.top - bh * CROP_PAD)),
+                min(W, int(box.right + bw * CROP_PAD)), min(H, int(box.bottom + bh * CROP_PAD)))
+    crop = photo.crop(crop_box)
+    k = min(1.0, SAM_MAX / max(crop.size))
+    small = crop.resize((max(1, round(crop.width * k)), max(1, round(crop.height * k)))) if k < 1 else crop
+    sw, sh = small.size
+    sbox = PromptBox(left=max(0, int((box.left - crop_box[0]) * k)), top=max(0, int((box.top - crop_box[1]) * k)),
+                     right=min(sw, max(1, int((box.right - crop_box[0]) * k))),
+                     bottom=min(sh, max(1, int((box.bottom - crop_box[1]) * k))))
+    pt = None
     if len(point) == 2:
-        pt = PromptPoint(x=int(point[0] * W / 1000), y=int(point[1] * H / 1000))
-        objs.append(PromptObject(id=2, prompts=[FramePrompt(frame=0, box=box, points=[pt])]))
-    result, _ = sam_with_prompts(key, photo, objs)
-    recs = [r for r in result.records if r.kind == "mask" and fill_ratio(r, box) <= LEAK_FILL]
+        pt = PromptPoint(x=min(sw - 1, max(0, int((point[0] * W / 1000 - crop_box[0]) * k))),
+                         y=min(sh - 1, max(0, int((point[1] * H / 1000 - crop_box[1]) * k))))
+    result, _ = sam_with_prompts(key, small, sam_prompts(sbox, pt))
+    recs = [r for r in result.records if r.kind == "mask" and fill_ratio(r, sbox) <= LEAK_FILL]
     if not recs:  # 都連背景一起描進去：框內縮 + 角落負向點重描
-        retry, _ = sam_with_prompts(key, photo, [leak_retry_prompt(0, box)])
+        retry, _ = sam_with_prompts(key, small, [leak_retry_prompt(0, sbox)])
         recs = [r for r in retry.records if r.kind == "mask"]
     if not recs:
         return None
-    return max(recs, key=lambda r: contrast(photo, mask_full(photo, r), box))
+    best = max(recs, key=lambda r: contrast(small, mask_full(small, r), sbox))
+    full = Image.new("L", photo.size, 0)
+    full.paste(mask_full(small, best).resize(crop.size, Image.BILINEAR), crop_box[:2])
+    return full
 
 
-def prepare_part(key: str, photo, part: dict, points: list[str]) -> dict:
-    """找零件框和接口點 → SAM 去背。回傳 {image: 去背圖, points: {描述: [x, y] 相對去背圖 0–1}}。"""
+def clip_masks(key: str, clip: Clip, box: PromptBox, point: list[int]) -> dict[int, Image.Image]:
+    """SAM 3.1 影片追蹤：在最清楚的那一格給框（和點），整段影片一次請求追蹤完。
+    回傳 {格: 整格大小的遮罩}；用最清楚那一格上和背景差最多的那個提示的追蹤結果。"""
+    photo = clip.photo
+    W, H = photo.size
+    pt = None
+    if len(point) == 2:
+        pt = PromptPoint(x=min(W - 1, int(point[0] * W / 1000)), y=min(H - 1, int(point[1] * H / 1000)))
+    objs = sam_prompts(box, pt, clip.key)
+    body = {"model": SAM_MODEL, "stream": True, "metadata": {"propagation_direction": "both"},
+            "input": [{"type": "message", "role": "user", "content": [
+                {"type": "input_text", "text": build_object_prompt(size=photo.size, objects=objs)},
+                {"type": "input_video", "file_id": clip.file_id}]}]}
+    with requests.post(f"{API_BASE}/responses", json=body, stream=True, timeout=300,
+                       headers={"Authorization": f"Bearer {key}"}) as r:
+        if not r.ok:
+            raise RuntimeError(f"SAM 影片追蹤失敗 HTTP {r.status_code}：{r.text[:300]}")
+
+        async def run():
+            return await parse_responses_stream(_sse_events(r), video_segmentation_format()).final_result()
+
+        result = asyncio.run(run())
+    tracks: dict[str, dict[int, object]] = {}
+    for rec in result.records:
+        if rec.kind == "mask" and rec.frame is not None:
+            tracks.setdefault(rec.object_id, {})[rec.frame.frame_index] = rec
+    ok = {oid: t for oid, t in tracks.items() if clip.key in t and fill_ratio(t[clip.key], box) <= LEAK_FILL}
+    if not ok:
+        return {}
+    best = max(ok.values(), key=lambda t: contrast(photo, mask_full(photo, t[clip.key]), box))
+    return {f: mask_full(clip.frames[f], rec) for f, rec in best.items() if f < len(clip.frames)}
+
+
+def prepare_part(key: str, src, part: dict, points: list[str]) -> dict:
+    """找零件框和接口點 → SAM 去背。src 是照片或零件影片（Clip）。
+    回傳 {image: 去背圖, points: {描述: [x, y] 相對去背圖 0–1}, spin: [轉一圈的去背圖], views: [其他角度]}。"""
+    clip = src if isinstance(src, Clip) else None
+    photo = clip.photo if clip else src
     objs = ground(key, photo, [f"{part['name']}（{part['look']}）"] + points)
     W, H = photo.size
     box = objs[0]["box"] if objs[0]["found"] and len(objs[0]["box"]) == 4 else [0, 0, 1000, 1000]
@@ -181,9 +263,31 @@ def prepare_part(key: str, photo, part: dict, points: list[str]) -> dict:
     px, py = (x2 - x1) * BOX_PAD, (y2 - y1) * BOX_PAD
     prompt = PromptBox(left=max(0, int(x1 - px)), top=max(0, int(y1 - py)),
                        right=min(W, int(x2 + px)), bottom=min(H, int(y2 + py)))
-    rec = segment_one(key, photo, prompt, objs[0]["point"] if objs[0]["found"] else [])
-    if rec is not None:
-        cut, (left, top) = cutout(photo, rec)
+    point = objs[0]["point"] if objs[0]["found"] else []
+    spin, views, full = [], [], None
+    if clip:
+        masks = clip_masks(key, clip, prompt, point)
+        full = masks.get(clip.key)
+        if full is not None:
+            # 追蹤偶爾只抓到零件的一小塊（例如只剩螺絲）：面積不到最清楚那一格一半的格子不用
+            area = lambda m: ImageStat.Stat(m).mean[0] * m.width * m.height
+            least = area(full) * SPIN_MIN_AREA
+            masks = {f: m for f, m in masks.items() if area(m) >= least}
+        if masks:
+            order = sorted(masks)
+            picks = [order[round(n * (len(order) - 1) / max(1, SPIN_FRAMES - 1))] for n in range(min(SPIN_FRAMES, len(order)))]
+            for f in dict.fromkeys(picks):
+                cut, _ = cutout(clip.frames[f], masks[f])
+                cut.thumbnail((SPIN_MAX, SPIN_MAX))
+                spin.append(cut)
+            # 給 Muse Image 的另一個角度：離最清楚那一格最遠（約轉了半圈）的那一格
+            far = max(order, key=lambda f: abs(f - clip.key))
+            if abs(far - clip.key) >= len(clip.frames) // 4:
+                views.append(cutout(clip.frames[far], masks[far])[0])
+    if full is None:
+        full = segment_one(key, photo, prompt, point)
+    if full is not None and full.getbbox():
+        cut, (left, top) = cutout(photo, full)
     else:  # SAM 沒描到：用框裁切，不去背
         cut = photo.crop((int(x1), int(y1), int(x2), int(y2))).convert("RGBA")
         left, top = int(x1), int(y1)
@@ -191,7 +295,7 @@ def prepare_part(key: str, photo, part: dict, points: list[str]) -> dict:
     for desc, o in zip(points, objs[1:]):
         if o["found"] and len(o["point"]) == 2:
             rel[desc] = [(o["point"][0] * W / 1000 - left) / cut.width, (o["point"][1] * H / 1000 - top) / cut.height]
-    return {"image": cut, "points": rel}
+    return {"image": cut, "points": rel, "spin": spin, "views": views}
 
 
 def on_white(img: Image.Image) -> Image.Image:
@@ -206,8 +310,12 @@ def edit_image(key: str, images: list[Image.Image], prompt: str) -> Image.Image:
         buf = io.BytesIO()
         on_white(im).save(buf, "PNG")
         files.append((f"image[{i}]", (f"{i}.png", buf.getvalue(), "image/png")))
-    r = requests.post(f"{API_BASE}/images/edits", headers={"Authorization": f"Bearer {key}"},
-                      data={"model": IMAGE_MODEL, "prompt": prompt}, files=files, timeout=300)
+    for attempt in range(3):  # 偶爾會回 500；後面的步驟都要接著這張圖畫，重試比整串失敗好
+        r = requests.post(f"{API_BASE}/images/edits", headers={"Authorization": f"Bearer {key}"},
+                          data={"model": IMAGE_MODEL, "prompt": prompt}, files=files, timeout=300)
+        if r.status_code < 500 and r.status_code != 429:
+            break
+        time.sleep(2 + 3 * attempt)
     if not r.ok:
         raise RuntimeError(f"Muse Image 呼叫失敗 HTTP {r.status_code}：{r.text[:300]}")
     item = r.json()["data"][0]
@@ -217,9 +325,13 @@ def edit_image(key: str, images: list[Image.Image], prompt: str) -> Image.Image:
     return out
 
 
-def render_step(key: str, s: dict, looks: dict, a_cut, b_img, onto: bool) -> Image.Image:
-    """Muse Image：把 A 裝到 B 上。B 是前一步生成的組合件時，照著那張圖改，前後步驟才會一致。"""
+def render_step(key: str, s: dict, looks: dict, a_cut, b_img, onto: bool, a_views=()) -> Image.Image:
+    """Muse Image：把 A 裝到 B 上。B 是前一步生成的組合件時，照著那張圖改，前後步驟才會一致。
+    a_views：A 從其他角度看的去背圖（零件是影片時才有），一起當參考圖，背面的細節才不會亂畫。"""
     a_desc = f"{s['part_a']} ({looks.get(s['part_a'], '')})"
+    which = "Image 3 shows" if len(a_views) == 1 else f"Images 3 to {2 + len(a_views)} show"
+    extra = (f"\n{which} the same part as image 2 from another angle; "
+             "use it for the details hidden in image 2.") if a_views else ""
     if onto:
         prompt = (f"Image 1 is a partly built assembly. Image 2 is a real part: {a_desc}.\n"
                   f"Attach the part from image 2 to the assembly: {s['instruction']} "
@@ -233,13 +345,15 @@ def render_step(key: str, s: dict, looks: dict, a_cut, b_img, onto: bool) -> Ima
                   f"(the {s['a_where']} of image 2 goes onto the {s['b_where']} of image 1).\n"
                   "Use exactly these parts with the same shapes, colors and details; do not add anything else. "
                   "Product photo on a plain light background, the whole assembly visible, the connection clearly shown.")
-    return edit_image(key, [b_img, a_cut], prompt)
+    return edit_image(key, [b_img, a_cut, *a_views], prompt + extra)
 
 
 def data_url(img: Image.Image, fmt: str) -> str:
     buf = io.BytesIO()
     if fmt == "png":
         img.save(buf, "PNG", optimize=True)
+    elif fmt == "webp":  # 轉一圈的動畫格：有透明背景又小
+        img.save(buf, "WEBP", quality=80)
     else:
         img.save(buf, "JPEG", quality=88)
     return f"data:image/{fmt};base64," + base64.b64encode(buf.getvalue()).decode()
@@ -283,7 +397,8 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
             "result": None,
         })
     result = {"goal": p["goal"], "steps": out_steps, "pending": len(steps),
-              "images": {f"part:{n}": data_url(_shrink(v["image"]), "png") for n, v in parts.items()}}
+              "images": {f"part:{n}": data_url(_shrink(v["image"]), "png") for n, v in parts.items()},
+              "spins": {n: [data_url(f, "webp") for f in v["spin"]] for n, v in parts.items() if v["spin"]}}
     if publish:
         publish(result)
 
@@ -299,7 +414,7 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
         try:
             if s["part_a"] not in parts:
                 raise RuntimeError(f"沒有 {s['part_a']} 的照片")
-            a_cut = parts[s["part_a"]]["image"]
+            a_cut, a_views = parts[s["part_a"]]["image"], parts[s["part_a"]]["views"]
             if o["onto_step"]:
                 base = futures[o["onto_step"]].result()
                 if base is None:
@@ -307,14 +422,14 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
                 # 同時做：在組合件照片上找 B 的接口、生成這一步
                 with ThreadPoolExecutor(1) as ex:
                     pt = ex.submit(ground, key, base, [f"{s['part_b']}上的{s['b_where']}"])
-                    img = render_step(key, s, looks, a_cut, base, True)
+                    img = render_step(key, s, looks, a_cut, base, True, a_views)
                     obj = pt.result()[0]
                 if obj["found"] and len(obj["point"]) == 2:
                     o["b_pt"] = [obj["point"][0] / 1000, obj["point"][1] / 1000]
             else:
                 if s["part_b"] not in parts:
                     raise RuntimeError(f"沒有 {s['part_b']} 的照片")
-                img = render_step(key, s, looks, a_cut, parts[s["part_b"]]["image"], False)
+                img = render_step(key, s, looks, a_cut, parts[s["part_b"]]["image"], False, a_views)
         except Exception as e:  # 這一步沒有結果圖：動畫只播零件飛過去，不淡入結果
             log(f"步驟 {k} 生成失敗：{e}")
             img = None
@@ -348,13 +463,14 @@ def main():
     import sys
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("photos", nargs="+", help="零件照片，一個零件一張")
+    ap.add_argument("photos", nargs="+", help="零件照片或轉一圈的影片（.mp4/.mov/.webm），一個零件一個")
     ap.add_argument("--manual", help="說明書照片（可省略）")
     ap.add_argument("--out", default=str(ROOT / "out" / "parts_guide.json"))
     args = ap.parse_args()
-    photos = [load_image(p) for p in args.photos]
+    key = load_api_key()
+    photos = [load_clip_file(p, key) if Path(p).suffix.lower() in VIDEO_EXT else load_image(p) for p in args.photos]
     manual = load_image(args.manual, MANUAL_MAX_SIDE) if args.manual else None
-    result = analyze(load_api_key(), photos, manual, log=lambda m: print(f"  {m}"))
+    result = analyze(key, photos, manual, log=lambda m: print(f"  {m}"))
     Path(args.out).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     for n, s in enumerate(result["steps"], 1):
         print(f"  步驟 {n}：{s['part_a']} → {s['part_b']}{'（組合件 #' + str(s['onto_step']) + '）' if s['onto_step'] else ''}"

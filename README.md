@@ -36,12 +36,14 @@ steps.json（由說明書轉出、人工確認過的 SOP）
 ## 主要流程：一個零件一張照片 → 組裝動畫（`parts_guide.py`）
 
 1. **Muse Spark** 看所有零件照片（和說明書，可省略），排出組裝步驟；每一步把零件 A 裝到零件 B 或前面完成的組合件上
-2. **Muse Spark** 找零件框和接口點 → **SAM 3.1** 剪成去背圖（框、框＋點兩種提示一起送，留下和背景差最多的那個）
+2. **Muse Spark** 找零件框和接口點 → **SAM 3.1** 剪成去背圖（框、框＋點兩種提示一起送，留下和背景差最多的那個；只送框附近、縮到 800 px 的裁切圖，SAM 一次呼叫的時間大多是上傳）
 3. **Muse Image** 每一步把 A 裝到 B 上，生成裝好的照片；裝到組合件時照著前一步的生成圖修改，前後一致
 4. 手機動畫（`static/assemble.js`）：A 的去背圖飛到 B 的接口 → 淡入生成的組裝結果 → 放大
 
+**零件也可以錄影**：拿在手上轉一圈錄 3–8 秒（`clip.py`）。影片轉成 10 fps 的 H.264 MP4 上傳到 Files API 一次，同一個 file_id 給 **Muse Spark** 直接看影片（看得到背面的接口），也給 **SAM 3.1** 做影片追蹤：在最清楚的那一格給框，一次請求就拿到每一格的輪廓（60 格約 7 秒，每 1000 格 US$0.2）。動畫裡這個零件會先轉一圈，**Muse Image** 也會多拿到另一個角度的去背圖當參考。
+
 約 45 秒開始播第一步，之後每一步的結果圖陸續補上（6 個零件全部約 2 分 20 秒）。
-命令列：`.venv/Scripts/python parts_guide.py samples/mic_each/*.jpg --manual samples/mic_manual.jpg`
+命令列：`.venv/Scripts/python parts_guide.py samples/mic_each/*.jpg --manual samples/mic_manual.jpg`（零件可以混 .mp4/.mov）
 舊版「一張照片標出零件」流程在 `/static/photo.html`。
 
 ## 手機試用
@@ -69,7 +71,7 @@ steps.json（由說明書轉出、人工確認過的 SOP）
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python -m pip install requests pillow meta-sam-parser   # macOS/Linux: .venv/bin/python
+.venv/Scripts/python -m pip install requests pillow meta-sam-parser imageio-ffmpeg   # macOS/Linux: .venv/bin/python
 cp .env.example .env                                  # 填入 MODEL_API_KEY
 .venv/Scripts/python test_grounding.py samples/parts.jpg \
   --target "最長的木板" --target "木釘" --sam "wooden dowel" --runs 3
