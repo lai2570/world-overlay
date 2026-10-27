@@ -23,8 +23,11 @@ steps.json（由說明書轉出、人工確認過的 SOP）
 ## 目前進度
 
 - [x] `test_grounding.py`：驗證 Muse Spark / SAM 3.1 能否在照片中找到指定零件，並量測延遲
-- [ ] 說明書 → `steps.json`
-- [ ] 手機網頁（相機、框線疊加）
+- [x] `test_pipeline.py`：Muse Spark 框出零件 → SAM 3.1 描出發光輪廓
+- [x] `test_assembly.py`：不給說明書，只看照片推理組裝步驟
+- [x] `build_guide.py`：一張照片 → 互動組裝引導網頁（兩個零件發光 + 動畫箭頭，逐步切換）
+- [ ] 說明書 → 步驟
+- [ ] 手機鏡頭版（相機、即時疊加）
 - [ ] 驗證與修正流程
 - [ ] 語音提問
 
@@ -38,4 +41,10 @@ cp .env.example .env                                  # 填入 MODEL_API_KEY
   --target "最長的木板" --target "木釘" --sam "wooden dowel" --runs 3
 ```
 
-結果圖與 JSON 會輸出到 `out/`。API key 在 [dev.meta.ai](https://dev.meta.ai) 的 **API keys** 頁建立，請勿提交 `.env`。
+結果圖與 JSON 會輸出到 `out/`。
+
+產生組裝引導網頁（約 60 秒；`--reuse` 只重畫網頁不呼叫 API）：
+
+```bash
+.venv/Scripts/python build_guide.py samples/parts.jpg
+```API key 在 [dev.meta.ai](https://dev.meta.ai) 的 **API keys** 頁建立，請勿提交 `.env`。
