@@ -265,6 +265,11 @@ function uploadVideo(file, onProgress) {
     x.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
     x.onload = () => {
       let d = {}; try { d = JSON.parse(x.responseText); } catch (e) {}
+      if (x.status === 401) {
+        const code = prompt("請輸入通行碼");
+        if (code) { try { localStorage.setItem("passcode", code); } catch (e) {} return uploadVideo(file, onProgress).then(ok, bad); }
+      }
+      if (x.status === 413) return bad(new Error("影片太大，網路通道上限約 100 MB，請錄短一點或改用 720p"));
       x.status === 200 ? ok(d.video) : bad(new Error(d.error || `上傳失敗 HTTP ${x.status}`));
     };
     x.onerror = () => bad(new Error("上傳中斷，請確認手機和電腦在同一個 Wi-Fi"));
@@ -298,6 +303,7 @@ async function analyze() {
       const mb = `上傳影片（${(all.file.size / 1024 / 1024).toFixed(0)} MB）`;
       addLog(mb);
       const li = $("log").lastChild;
+      await api("/api/ping");  // 先確認通行碼，免得大檔案傳完才被擋
       const video = await uploadVideo(all.file, f => li.textContent = `${mb} ${Math.round(f * 100)}%`);
       body = {manual, video};
     } else {

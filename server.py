@@ -21,6 +21,7 @@
 import argparse
 import base64
 import copy
+import hmac
 import io
 import json
 import os
@@ -155,7 +156,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def authorized(self) -> bool:
         code = os.environ.get("APP_PASSCODE")
-        if code and self.headers.get("X-Passcode") != code:
+        if code and not hmac.compare_digest(self.headers.get("X-Passcode", "").encode(), code.encode()):
+            time.sleep(1)  # 放到網路上時拖慢猜通行碼
             self.send_json({"error": "通行碼錯誤"}, HTTPStatus.UNAUTHORIZED)
             return False
         return True
@@ -168,6 +170,8 @@ class Handler(BaseHTTPRequestHandler):
             f = (STATIC / url.path.removeprefix("/static/")).resolve()
             if f.parent == STATIC.resolve() and f.is_file():
                 return self.send_file(f)
+        if url.path == "/api/ping":  # 上傳大影片前先確認通行碼
+            return self.authorized() and self.send_json({"ok": True})
         if url.path == "/api/job":
             if not self.authorized():
                 return
