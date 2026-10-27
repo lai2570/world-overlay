@@ -11,10 +11,14 @@
 設定環境變數 APP_PASSCODE 時，請求要帶 X-Passcode 標頭（放到網路上時避免別人花你的額度）。
 """
 import argparse
+import base64
 import io
 import json
 import os
+import shutil
 import socket
+import ssl
+import subprocess
 import threading
 import time
 import traceback
@@ -26,6 +30,7 @@ from urllib.parse import parse_qs, urlparse
 
 from build_guide import STATIC, analyze, page_data
 from test_grounding import ROOT, load_api_key, load_image, to_data_url
+from tracker import track
 
 MAX_UPLOAD = 15 * 1024 * 1024
 APP_OUT = ROOT / "out" / "app"
@@ -116,13 +121,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/analyze":
+        path = urlparse(self.path).path
+        if path not in ("/api/analyze", "/api/track"):
             return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         if not self.authorized():
             return
         length = int(self.headers.get("Content-Length") or 0)
         if not 0 < length <= MAX_UPLOAD:
             return self.send_json({"error": "照片大小不對（上限 15 MB）"}, HTTPStatus.BAD_REQUEST)
+        if path == "/api/track":
+            return self.handle_track(self.rfile.read(length))
         photo = self.rfile.read(length)
         job_id = uuid.uuid4().hex[:8]
         with jobs_lock:
@@ -130,7 +138,23 @@ class Handler(BaseHTTPRequestHandler):
         threading.Thread(target=run_job, args=(job_id, photo, self.server.api_key), daemon=True).start()
         self.send_json({"job": job_id})
 
+    def handle_track(self, body: bytes):
+        """同步回應（約 2–3 秒；有零件跟丟時約 8 秒）。body: {image: data URL, parts: [...]}"""
+        try:
+            req = json.loads(body)
+            b64 = req["image"].split(",", 1)[1]
+            img = load_image(io.BytesIO(base64.b64decode(b64)))
+            result = track(self.server.api_key, img, req["parts"])
+        except Exception as e:
+            traceback.print_exc()
+            return self.send_json({"error": str(e) or e.__class__.__name__}, HTTPStatus.INTERNAL_SERVER_ERROR)
+        note = f"，重新找：{'、'.join(result['relocated'])}" if result["relocated"] else ""
+        print(f"[track] {result['seconds']} 秒{note}")
+        self.send_json(result)
+
     def log_message(self, fmt, *args):
+        if "/api/track" in self.path:  # handle_track 自己印比較精簡的紀錄
+            return
         if "/api/job" not in self.path:  # 輪詢太頻繁，不印
             super().log_message(fmt, *args)
 
@@ -144,13 +168,42 @@ def lan_ip() -> str:
             return "127.0.0.1"
 
 
+CERTS = ROOT / "certs"
+
+
+def ensure_cert(ip: str) -> tuple[Path, Path]:
+    """區網用的自簽憑證（手機要 HTTPS 才能在網頁裡開即時相機）。IP 變了就重新產生。"""
+    cert, key, stamp = CERTS / "cert.pem", CERTS / "key.pem", CERTS / "ip.txt"
+    if cert.exists() and key.exists() and stamp.exists() and stamp.read_text() == ip:
+        return cert, key
+    openssl = shutil.which("openssl") or r"C:\Program Files\Git\usr\bin\openssl.exe"
+    CERTS.mkdir(exist_ok=True)
+    subprocess.run([openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "30",
+                    "-keyout", str(key), "-out", str(cert), "-subj", "/CN=world-overlay",
+                    "-addext", f"subjectAltName=IP:{ip},IP:127.0.0.1,DNS:localhost"],
+                   check=True, capture_output=True)
+    stamp.write_text(ip)
+    return cert, key
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--https", action="store_true", help="用自簽憑證開 HTTPS（即時相機需要）")
     args = ap.parse_args()
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     server.api_key = load_api_key()
-    print(f"WORLD OVERLAY 伺服器啟動：手機連同一個 Wi-Fi，打開 http://{lan_ip()}:{args.port}")
+    ip = lan_ip()
+    scheme = "http"
+    if args.https:
+        cert, key = ensure_cert(ip)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
+    print(f"WORLD OVERLAY 伺服器啟動：手機連同一個 Wi-Fi，打開 {scheme}://{ip}:{args.port}")
+    if args.https:
+        print("第一次打開會出現安全性警告（自簽憑證），點「進階」→「繼續前往」即可")
     if os.environ.get("APP_PASSCODE"):
         print("已啟用通行碼（APP_PASSCODE）")
     try:

@@ -191,14 +191,25 @@ def page_data(img, plan: dict, located: dict, shapes: dict) -> dict:
     # 接口在照片裡看不到時（例如海綿套內部），箭頭改從零件框的中心出發
     centers = {p["target"]: [(p["box"][0] + p["box"][2]) / 2, (p["box"][1] + p["box"][3]) / 2]
                for p in located["parts"] if len(p["box"]) == 4}
+    boxes = {p["target"]: [p["box"][0] * W / 1000, p["box"][1] * H / 1000, p["box"][2] * W / 1000, p["box"][3] * H / 1000]
+             for p in located["parts"] if len(p["box"]) == 4}
+
+    def rel(p, name):
+        # 接口在零件框裡的相對位置，即時追蹤時零件移動，箭頭跟著零件走
+        b = boxes.get(name)
+        if not p or not b or b[2] <= b[0] or b[3] <= b[1]:
+            return None
+        return [(p[0] - b[0]) / (b[2] - b[0]), (p[1] - b[1]) / (b[3] - b[1])]
+
     steps = []
     for s, (a, b) in zip(plan["steps"], located["points"]):
-        a = a if len(a) == 2 else centers.get(s["part_a"], [])
-        b = b if len(b) == 2 else centers.get(s["part_b"], [])
+        a = pt(a if len(a) == 2 else centers.get(s["part_a"], []))
+        b = pt(b if len(b) == 2 else centers.get(s["part_b"], []))
         steps.append({k: s[k] for k in ("part_a", "part_b", "instruction", "why", "confidence")}
-                     | {"a": pt(a), "b": pt(b)})
+                     | {"a": a, "b": b, "a_rel": rel(a, s["part_a"]), "b_rel": rel(b, s["part_b"])})
     shapes = {name: sh | {"d": clean_path(sh["d"])} for name, sh in shapes.items()}
-    return {"w": W, "h": H, "goal": plan["goal"], "steps": steps, "shapes": shapes}
+    looks = {p["name"]: p["look"] for p in plan.get("parts", [])}
+    return {"w": W, "h": H, "goal": plan["goal"], "steps": steps, "shapes": shapes, "boxes": boxes, "looks": looks}
 
 
 def render_html(img, plan: dict, located: dict, shapes: dict, out_path: Path):

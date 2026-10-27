@@ -3,8 +3,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0d10">
 <title>WORLD OVERLAY</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%23ffb020' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/guide.css">
 <style>
+[hidden]{display:none!important}  /* guide.css 的 .stage img{display:block} 會蓋過 hidden 屬性 */
 .screen{display:none;min-height:100dvh;flex-direction:column}
 .screen.on{display:flex}
 .hero{flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px 20px;gap:14px}
@@ -47,6 +49,14 @@ input[type=file]{display:none}
 .topbar b{color:var(--fg);letter-spacing:.08em}
 .topbar button{background:none;border:1px solid #3a404a;color:var(--fg);border-radius:999px;padding:6px 12px;font:inherit;font-size:13px;white-space:nowrap}
 .goal{padding:0 16px 8px;font-size:13px;color:var(--mute)}
+.tools{display:flex;gap:8px}
+.topbar button.on{background:var(--b);border-color:var(--b);color:#111}
+.stage video{display:block;width:100%;height:auto}
+.live-tip{position:absolute;left:12px;right:12px;bottom:12px;text-align:center;font-size:14px;
+  background:rgba(0,0,0,.65);padding:8px 12px;border-radius:10px}
+.live-tip .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#f87171;margin-right:6px;
+  animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.2}}
 </style></head><body>
 
 <!-- 1. 開始 -->
@@ -93,11 +103,14 @@ input[type=file]{display:none}
 
 <!-- 3. 引導 -->
 <section class="screen" id="guide">
-  <div class="topbar"><b>WORLD OVERLAY</b><button id="again">重新拍照</button></div>
+  <div class="topbar"><b>WORLD OVERLAY</b>
+    <span class="tools"><button id="liveBtn" hidden>🎥 即時鏡頭</button><button id="again">重新拍照</button></span></div>
   <div class="goal" id="goal"></div>
   <div class="stage">
     <img id="photo" alt="零件照片">
+    <video id="liveVideo" playsinline muted autoplay hidden></video>
     <svg id="ov" preserveAspectRatio="none"></svg>
+    <div class="live-tip" id="liveTip" hidden></div>
   </div>
   <div class="card">
     <div class="count" id="count"></div>
@@ -110,6 +123,7 @@ input[type=file]{display:none}
 </section>
 
 <script src="/static/guide.js"></script>
+<script src="/static/motion.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const MAX_SIDE = 1280;  // 和後端一致；縮小再上傳比較快
@@ -199,15 +213,113 @@ function fail(msg) {
   $("errNav").style.display = "flex";
 }
 
+let guide = null, photoData = null, looks = {};
+
 function finish(result, imgUrl) {
   clearInterval(timerId);
   $("log").classList.add("finished");
   if (!result.steps.length) return fail("AI 沒有找到可以組裝的步驟，換個角度再拍一次");
+  stopLive();
   $("photo").src = imgUrl;
   $("goal").textContent = `目標：${result.goal}`;
   show("guide");
-  startGuide(result, 1);
+  // 照片模式的資料留一份，關掉即時鏡頭時換回來
+  photoData = {w: result.w, h: result.h, shapes: result.shapes, boxes: result.boxes};
+  looks = result.looks || {};  // 零件外觀描述，跟丟時讓 AI 依描述重新找
+  guide = startGuide(result, 1, () => live && live.stepChanged());
+  $("liveBtn").hidden = !(window.isSecureContext && navigator.mediaDevices?.getUserMedia);
 }
+
+// ---------- 即時鏡頭：畫面比對補償手機移動 + 每隔幾秒請 SAM 重新描輪廓 ----------
+const REFRESH_GAP = 1200;  // 兩次 SAM 之間至少間隔（毫秒），省額度
+let live = null;
+
+async function startLive() {
+  const video = $("liveVideo");
+  let s;
+  try {
+    s = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment", width: {ideal: 1280}, height: {ideal: 960}}});
+  } catch (e) { return alert(`無法開啟相機：${e.message}`); }
+  video.srcObject = s;
+  await video.play().catch(() => {});
+  if (!video.videoWidth) await new Promise(r => video.addEventListener("loadedmetadata", r, {once: true}));
+  const k = Math.min(1, MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
+  const fw = Math.round(video.videoWidth * k), fh = Math.round(video.videoHeight * k);
+
+  live = {
+    stream: s, motion: new MotionTracker(), areas: {}, boxes: {}, tracked: new Set(), busy: false, last: 0, raf: 0, stopped: false,
+    stepChanged() { this.forceRelocate = true; },
+  };
+  $("photo").hidden = true; video.hidden = false;
+  $("liveBtn").classList.add("on"); $("liveBtn").textContent = "🎥 即時中";
+  // 換成鏡頭畫面座標；照片上的輪廓位置對不上，先清掉，等第一次追蹤
+  guide.update({w: fw, h: fh, shapes: {}, boxes: {}, live: true});
+  tip("對準所有零件，尋找中…", true);
+
+  const frame = () => {
+    if (live.stopped) return;
+    const est = live.motion.estimate(video);
+    if (est) {
+      guide.setOffset(est.dx, est.dy);
+      if (!est.reliable) live.forceRelocate = true;  // 移太多，下次直接重新找
+    }
+    if (!live.busy && Date.now() - live.last > REFRESH_GAP) refresh(video, fw, fh, est);
+    live.raf = setTimeout(frame, 80);  // 約每秒 12 次
+  };
+  frame();
+}
+
+async function refresh(video, fw, fh, est) {
+  live.busy = true;
+  const s = guide.step(), names = [s.part_a, s.part_b];
+  const c = document.createElement("canvas");
+  c.width = fw; c.height = fh;
+  c.getContext("2d").drawImage(video, 0, 0, fw, fh);
+  const snap = live.motion.snapshot(c);
+  // 上一格的框加上目前估算的平移 = 這一格的位置；沒追過或要求重新找的給 null
+  const dx = est ? est.dx : 0, dy = est ? est.dy : 0;
+  const parts = names.map(n => {
+    const b = live.forceRelocate || !live.tracked.has(n) ? null : live.boxes[n];
+    return {name: n, look: looks[n] || "", area: live.areas[n] || null,
+            box: b ? [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy] : null};
+  });
+  live.forceRelocate = false;
+  try {
+    const r = await api("/api/track", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({image: c.toDataURL("image/jpeg", 0.8), parts})});
+    if (live.stopped) return;
+    Object.assign(live.areas, r.areas);
+    live.boxes = r.boxes;  // 只保留這一格的框；其他零件的舊框屬於別的畫面，平移對不上
+    for (const n of names) r.boxes[n] ? live.tracked.add(n) : live.tracked.delete(n);
+    for (const n of live.tracked) if (!names.includes(n)) live.tracked.delete(n);
+    live.motion.setKeyframe(snap);  // 新輪廓屬於這一格，之後的平移都相對它計算
+    guide.update({shapes: r.shapes, boxes: r.boxes});
+    tip(r.lost.length ? `找不到：${r.lost.join("、")}，請讓它入鏡` : `追蹤中・${r.seconds} 秒更新一次`, !!r.lost.length);
+  } catch (e) {
+    if (!live.stopped) tip(`追蹤失敗：${e.message}`, true);
+  } finally {
+    live.busy = false; live.last = Date.now();
+  }
+}
+
+function tip(msg, warn) {
+  $("liveTip").hidden = false;
+  $("liveTip").innerHTML = `${warn ? "" : '<span class="dot"></span>'}${msg}`;
+}
+
+function stopLive() {
+  if (!live) return;
+  live.stopped = true;
+  clearTimeout(live.raf);
+  live.stream.getTracks().forEach(t => t.stop());
+  live = null;
+  $("liveVideo").hidden = true; $("photo").hidden = false; $("liveTip").hidden = true;
+  $("liveBtn").classList.remove("on"); $("liveBtn").textContent = "🎥 即時鏡頭";
+  if (guide && photoData) guide.update({...photoData, live: false});
+}
+
+$("liveBtn").onclick = () => live ? stopLive() : startLive();
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopLive(); });
 
 // 有 HTTPS 才能開即時相機；區網 http 時改用手機內建相機拍照
 async function openCamera() {
