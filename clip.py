@@ -41,7 +41,7 @@ class Frames:
 class Clip:
     frames: Frames
     key: int              # 最清楚的那一格，零件照片、去背圖都用它
-    file_id: str
+    file_id: str | None   # None：只有一格（從整段影片挑出來的），當照片處理、不做影片追蹤
     source: tuple | None = None  # 從一段錄全部零件的影片切出來的：(整段的 file_id, 開始秒, 結束秒)
 
     @property

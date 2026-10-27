@@ -65,7 +65,7 @@ input[type=file]{display:none}
 <section class="screen on" id="home">
   <div class="hero">
     <h1>WORLD OVERLAY</h1>
-    <p>錄一段影片把零件一個一個拿起來轉一下（或一個零件拍一張），AI 會判斷怎麼裝，做出零件飛過去接上的動畫，並畫出每一步裝好的樣子。</p>
+    <p>零件放在桌上錄一段影片，一個一個拍過去（或一個零件拍一張），AI 會判斷怎麼裝，做出零件飛過去接上的動畫，並畫出每一步裝好的樣子。</p>
     <div class="label">說明書（可略過）</div>
     <div class="grid"><label class="tile manual" id="manualTile" for="manualIn"><b>📖</b>拍說明書</label></div>
     <div class="label">零件</div>
@@ -116,7 +116,7 @@ const $ = id => document.getElementById(id);
 const MAX_SIDE = 1280, MANUAL_MAX_SIDE = 1600, MAX_PARTS = 10;  // 和後端一致
 const VIDEO_MAX_MB = 60, VIDEO_MAX_SEC = 15;  // 後端只取前 8 秒；4K 影片很大，先擋掉
 const ALL_MAX_MB = 500, ALL_MAX_SEC = 150;    // 一段影片錄全部零件（原檔直接上傳）
-const ALL_TILE = "<b>🎬</b><span>一段影片錄全部零件<br><small>一次拿起一個，轉一下再放下（最長 150 秒）</small></span>";
+const ALL_TILE = "<b>🎬</b><span>一段影片錄全部零件<br><small>零件放桌上，鏡頭一個一個拍過去，每個停 2 秒（不用拿起來轉，最長 150 秒）</small></span>";
 let timerId = null, pollId = null, player = null;
 
 function show(id) {

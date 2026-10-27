@@ -157,7 +157,8 @@ def plan(key: str, photos: list, manual=None) -> dict:
 def ground(key: str, img, targets: list[str], effort: str | None = GROUND_EFFORT) -> list[dict]:
     prompt = ("Locate each target in the image. Return one entry per target, in the same order, on the normalized "
               "0-1000 grid where (0,0) is the top-left corner. Box the whole object for a part; for a connection "
-              "feature give the point on it. If a target is not visible, set found=false and use empty arrays. "
+              "feature give the point on it. Never include a hand holding the part in its box. "
+              "If a target is not visible, set found=false and use empty arrays. "
               "Write scene and reason in Traditional Chinese.\n\nTargets:\n"
               + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(targets)))
     return spark_json(key, [{"type": "text", "text": prompt}, image_part(img)], GROUNDING_SCHEMA, "Grounding",
@@ -272,8 +273,8 @@ def clip_masks(key: str, clip: Clip, box: PromptBox, point: list[int]) -> dict[i
 def prepare_part(key: str, src, part: dict, points: list[str]) -> dict:
     """找零件框和接口點 → SAM 去背。src 是照片或零件影片（Clip）。
     回傳 {image: 去背圖, points: {描述: [x, y] 相對去背圖 0–1}, spin: [轉一圈的去背圖], views: [其他角度]}。"""
-    clip = src if isinstance(src, Clip) else None
-    photo = clip.photo if clip else src
+    clip = src if isinstance(src, Clip) and src.file_id else None
+    photo = src.photo if isinstance(src, Clip) else src
     objs = ground(key, photo, [f"{part['name']}（{part['look']}）"] + points)
     W, H = photo.size
     box = objs[0]["box"] if objs[0]["found"] and len(objs[0]["box"]) == 4 else [0, 0, 1000, 1000]
