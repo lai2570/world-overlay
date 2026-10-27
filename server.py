@@ -5,7 +5,7 @@
   .venv/Scripts/python server.py --port 9000
 
 分析要 1 分鐘左右，所以用「建立工作 → 輪詢進度」：
-  POST /api/analyze   body 為 JPEG → {"job": id}
+  POST /api/analyze   body 為 JPEG，或 JSON {image, manual}（都是 data URL，manual 可省略）→ {"job": id}
   GET  /api/job?id=   → {"status": running|done|error, "log": [...], "result": {...}}
   GET  /api/sample    → 不呼叫 API，直接回傳 out/mic_parts_guide.json 的範例結果
 設定環境變數 APP_PASSCODE 時，請求要帶 X-Passcode 標頭（放到網路上時避免別人花你的額度）。
@@ -28,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from build_guide import STATIC, analyze, page_data
+from build_guide import MANUAL_MAX_SIDE, STATIC, analyze, page_data
 from test_grounding import ROOT, load_api_key, load_image, to_data_url
 from tracker import track
 
@@ -43,7 +43,7 @@ jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 
 
-def run_job(job_id: str, photo: bytes, key: str):
+def run_job(job_id: str, photo: bytes, key: str, manual: bytes | None = None):
     job = jobs[job_id]
 
     def log(msg: str):
@@ -53,7 +53,8 @@ def run_job(job_id: str, photo: bytes, key: str):
 
     try:
         img = load_image(io.BytesIO(photo))
-        plan, located, shapes = analyze(key, img, log=log)
+        manual_img = load_image(io.BytesIO(manual), MANUAL_MAX_SIDE) if manual else None
+        plan, located, shapes = analyze(key, img, log=log, manual=manual_img)
         data = page_data(img, plan, located, shapes)
         APP_OUT.mkdir(parents=True, exist_ok=True)
         img.save(APP_OUT / f"{job_id}.jpg", quality=90)
@@ -134,11 +135,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "照片大小不對（上限 15 MB）"}, HTTPStatus.BAD_REQUEST)
         if path == "/api/track":
             return self.handle_track(self.rfile.read(length))
-        photo = self.rfile.read(length)
+        body = self.rfile.read(length)
+        if self.headers.get("Content-Type", "").startswith("application/json"):
+            # {image: 零件照 data URL, manual: 說明書照 data URL 或 null}
+            try:
+                req = json.loads(body)
+                photo = base64.b64decode(req["image"].split(",", 1)[1])
+                manual = base64.b64decode(req["manual"].split(",", 1)[1]) if req.get("manual") else None
+            except (ValueError, KeyError, IndexError):
+                return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)
+        else:
+            photo, manual = body, None
         job_id = uuid.uuid4().hex[:8]
         with jobs_lock:
             jobs[job_id] = {"status": "running", "log": [], "started": time.time()}
-        threading.Thread(target=run_job, args=(job_id, photo, self.server.api_key), daemon=True).start()
+        threading.Thread(target=run_job, args=(job_id, photo, self.server.api_key, manual), daemon=True).start()
         self.send_json({"job": job_id})
 
     def handle_track(self, body: bytes):

@@ -43,9 +43,9 @@ def load_api_key() -> str:
     return key
 
 
-def load_image(path: str) -> Image.Image:
+def load_image(path: str, max_side: int = MAX_SIDE) -> Image.Image:
     img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")  # 手機照片要依 EXIF 轉正
-    img.thumbnail((MAX_SIDE, MAX_SIDE))
+    img.thumbnail((max_side, max_side))
     return img
 
 

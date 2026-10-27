@@ -20,6 +20,15 @@
   background:#2a2f37;color:var(--fg);cursor:pointer;text-decoration:none}
 .btn.primary{background:var(--a);color:#111}
 input[type=file]{display:none}
+.slots{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.slot{position:relative;aspect-ratio:3/4;border:2px dashed #3a404a;border-radius:14px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:6px;color:var(--mute);font-size:14px;text-align:center;overflow:hidden;cursor:pointer}
+.slot b{color:var(--fg);font-size:16px}
+.slot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.slot.filled{border-style:solid;border-color:var(--a)}
+.slot .tag{position:absolute;left:6px;bottom:6px;background:rgba(0,0,0,.7);color:#fff;padding:2px 8px;border-radius:8px;font-size:12px}
+.slot .clear{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;border:0;background:rgba(0,0,0,.7);color:#fff}
+.btn:disabled{opacity:.4}
 /* 即時相機（只有 HTTPS 才能用） */
 .cam{position:relative;flex:1;background:#000;overflow:hidden}
 .cam video{width:100%;height:100%;object-fit:cover}
@@ -63,49 +72,41 @@ input[type=file]{display:none}
 <section class="screen on" id="home">
   <div class="hero">
     <h1>WORLD OVERLAY</h1>
-    <p>把所有零件攤開，用鏡頭掃描。AI 會判斷組裝順序，在鏡頭畫面上讓要接的兩個零件發光，並用箭頭告訴你怎麼接。</p>
+    <p>拍說明書和零件各一張，AI 會對照說明書，一步一步讓要接的兩個零件發光，用動畫告訴你哪個裝在哪。</p>
+    <div class="slots">
+      <label class="slot" id="manualSlot" for="manualIn"><b>📖 說明書</b>組裝圖那一頁<br>（可略過）</label>
+      <label class="slot" id="partsSlot" for="partsIn"><b>🔩 零件</b>攤平、從正上方拍<br>所有零件都要入鏡</label>
+    </div>
     <ul class="steps">
       <li><b>1</b>零件分開攤平，背景單純、光線充足</li>
-      <li><b>2</b>從正上方對準，所有零件都要入鏡，按下掃描</li>
-      <li><b>3</b>約 1 分鐘分析，期間手機盡量拿穩（放在架子上最好）</li>
+      <li><b>2</b>沒有說明書也可以，AI 會自己推理怎麼裝</li>
+      <li><b>3</b>分析約 1 分鐘</li>
     </ul>
   </div>
   <div class="actions">
-    <button class="btn primary" id="shoot">🎥 掃描零件</button>
-    <label class="btn" for="pick">🖼 從相簿選照片</label>
+    <button class="btn primary" id="go" disabled>先拍零件照片</button>
     <button class="btn" id="sample">看範例（麥克風組）</button>
-    <input type="file" id="snap" accept="image/*" capture="environment">
-    <input type="file" id="pick" accept="image/*">
-  </div>
-</section>
-
-<!-- 1b. 即時相機 -->
-<section class="screen" id="camera">
-  <div class="cam">
-    <video id="video" playsinline muted autoplay></video>
-    <div class="tip">讓所有零件都在畫面裡，按下按鈕掃描</div>
-    <button class="close" id="camClose" aria-label="關閉">✕</button>
-    <button class="shutter" id="shutter" aria-label="拍照"></button>
+    <input type="file" id="manualIn" accept="image/*">
+    <input type="file" id="partsIn" accept="image/*">
   </div>
 </section>
 
 <!-- 2. 分析中 -->
 <section class="screen" id="busy">
-  <div class="scan"><img id="busyImg" alt=""><video id="busyVideo" playsinline muted autoplay hidden></video></div>
+  <div class="scan"><img id="busyImg" alt=""></div>
   <div class="progress">
     <h2>AI 分析中</h2>
-    <div class="timer" id="holdTip" hidden>手機盡量對著零件、不要移動，分析完會直接在鏡頭畫面上引導</div>
     <div class="timer" id="timer">0 秒</div>
     <ul class="log" id="log"></ul>
     <div class="err" id="err"></div>
-    <div class="nav" id="errNav" style="display:none"><button id="retry">重新拍照</button></div>
+    <div class="nav" id="errNav" style="display:none"><button id="retry">回首頁</button></div>
   </div>
 </section>
 
 <!-- 3. 引導 -->
 <section class="screen" id="guide">
   <div class="topbar"><b>WORLD OVERLAY</b>
-    <span class="tools"><button id="liveBtn" hidden>🎥 即時鏡頭</button><button id="again">重新拍照</button></span></div>
+    <span class="tools"><button id="liveBtn" hidden>🎥 即時鏡頭</button><button id="again">重新開始</button></span></div>
   <div class="goal" id="goal"></div>
   <div class="stage">
     <img id="photo" alt="零件照片">
@@ -128,7 +129,7 @@ input[type=file]{display:none}
 <script>
 const $ = id => document.getElementById(id);
 const MAX_SIDE = 1280;  // 和後端一致；縮小再上傳比較快
-let stream = null, timerId = null, pollId = null;
+let timerId = null, pollId = null;
 
 function show(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
@@ -152,41 +153,41 @@ async function api(path, opts = {}) {
   return data;
 }
 
-// 縮小到 1280，順便依 EXIF 轉正（瀏覽器畫進 canvas 時會套用方向）
-async function toJpeg(source) {
+// 縮小再上傳，順便依 EXIF 轉正（瀏覽器畫進 canvas 時會套用方向）
+async function toJpeg(source, maxSide = MAX_SIDE) {
   const w0 = source.videoWidth || source.naturalWidth || source.width;
   const h0 = source.videoHeight || source.naturalHeight || source.height;
-  const k = Math.min(1, MAX_SIDE / Math.max(w0, h0));
+  const k = Math.min(1, maxSide / Math.max(w0, h0));
   const c = document.createElement("canvas");
   c.width = Math.round(w0 * k); c.height = Math.round(h0 * k);
   c.getContext("2d").drawImage(source, 0, 0, c.width, c.height);
   return new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
 }
 
-async function fileToJpeg(file) {
+async function fileToJpeg(file, maxSide) {
   const img = new Image();
   img.src = URL.createObjectURL(file);
   await img.decode();
-  const blob = await toJpeg(img);
+  const blob = await toJpeg(img, maxSide);
   URL.revokeObjectURL(img.src);
   return blob;
 }
 
-async function analyze(blob) {
+const blobToDataUrl = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
+
+async function analyze(blob, manual) {
   const url = URL.createObjectURL(blob);
   $("busyImg").src = url;
-  // 鏡頭掃描時分析畫面顯示即時影像，提醒使用者拿穩
-  $("busyImg").hidden = !!scan; $("busyVideo").hidden = !scan; $("holdTip").hidden = !scan;
-  $("busyVideo").srcObject = scan ? scan.stream : null;
   $("log").replaceChildren(); $("log").classList.remove("finished");
   $("err").textContent = ""; $("errNav").style.display = "none";
   show("busy");
   const t0 = Date.now();
   clearInterval(timerId);
   timerId = setInterval(() => $("timer").textContent = `${Math.round((Date.now() - t0) / 1000)} 秒`, 500);
-  addLog("上傳照片");
+  addLog(manual ? "上傳說明書和零件照片" : "上傳零件照片");
   try {
-    const {job} = await api("/api/analyze", {method: "POST", body: blob, headers: {"Content-Type": "image/jpeg"}});
+    const body = JSON.stringify({image: await blobToDataUrl(blob), manual: manual ? await blobToDataUrl(manual) : null});
+    const {job} = await api("/api/analyze", {method: "POST", body, headers: {"Content-Type": "application/json"}});
     await poll(job, url);
   } catch (e) { fail(e.message); }
 }
@@ -213,7 +214,6 @@ function poll(job, url) {
 
 function fail(msg) {
   clearInterval(timerId);
-  dropScan();
   $("err").textContent = `分析失敗：${msg}`;
   $("errNav").style.display = "flex";
 }
@@ -232,9 +232,8 @@ function finish(result, imgUrl) {
   photoData = {w: result.w, h: result.h, shapes: result.shapes, boxes: result.boxes};
   looks = result.looks || {};  // 零件外觀描述，跟丟時讓 AI 依描述重新找
   guide = startGuide(result, 1, () => live && live.stepChanged());
-  $("liveBtn").hidden = !(window.isSecureContext && navigator.mediaDevices?.getUserMedia);
-  // 鏡頭掃描的：直接接著用同一個鏡頭，從掃描那一格的輪廓開始追蹤，不用重新找零件
-  if (scan) { const s = scan; scan = null; $("busyVideo").srcObject = null; startLive(s, result); }
+  // 即時鏡頭還不夠準（手機移動時 AI 回應跟不上），先關掉入口；網址加 #live 可以開來測試
+  $("liveBtn").hidden = !(location.hash === "#live" && window.isSecureContext && navigator.mediaDevices?.getUserMedia);
 }
 
 // ---------- 即時鏡頭：畫面比對補償手機移動 + 每隔幾秒請 SAM 重新描輪廓 ----------
@@ -371,50 +370,40 @@ function stopLive() {
 $("liveBtn").onclick = () => live ? stopLive() : startLive();
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopLive(); });
 
-// 鏡頭掃描：按下快門後鏡頭不關，分析完直接進即時引導
-let scan = null;  // {stream, snap, w, h}
+// 兩張照片：說明書（可略過）和零件。選好先縮小，按開始分析才上傳
+const MANUAL_MAX_SIDE = 1600;  // 說明書字小，解析度給高一點（和後端一致）
+const picked = {manual: null, parts: null};
 
-function dropScan() {
-  if (!scan) return;
-  scan.stream.getTracks().forEach(t => t.stop());
-  scan = null;
-  $("busyVideo").srcObject = null;
+function setSlot(kind, blob) {
+  picked[kind] = blob;
+  const slot = $(kind + "Slot");
+  for (const sel of ["img", ".tag", ".clear"]) slot.querySelector(sel)?.remove();
+  slot.classList.toggle("filled", !!blob);
+  if (blob) {
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(blob);
+    const tag = document.createElement("span");
+    tag.className = "tag"; tag.textContent = kind === "manual" ? "說明書" : "零件";
+    const x = document.createElement("button");
+    x.className = "clear"; x.textContent = "✕"; x.setAttribute("aria-label", "移除");
+    x.onclick = e => { e.preventDefault(); setSlot(kind, null); };
+    slot.append(img, tag, x);
+  }
+  $("go").disabled = !picked.parts;
+  $("go").textContent = !picked.parts ? "先拍零件照片" : picked.manual ? "對照說明書開始分析" : "開始分析（不看說明書）";
 }
 
-// 有 HTTPS 才能開即時相機；區網 http 時改用手機內建相機拍照
-async function openCamera() {
-  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return $("snap").click();
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment", width: {ideal: 1920}}});
-    $("video").srcObject = stream;
-    show("camera");
-  } catch (e) { $("snap").click(); }
+for (const kind of ["manual", "parts"]) {
+  $(kind + "In").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = "";
+    if (f) setSlot(kind, await fileToJpeg(f, kind === "manual" ? MANUAL_MAX_SIDE : MAX_SIDE));
+  };
 }
-
-function closeCamera() {
-  stream?.getTracks().forEach(t => t.stop());
-  stream = null;
-}
-
-$("shoot").onclick = openCamera;
-$("camClose").onclick = () => { closeCamera(); show("home"); };
-$("shutter").onclick = async () => {
-  const video = $("video");
-  const k = Math.min(1, MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
-  const c = document.createElement("canvas");
-  c.width = Math.round(video.videoWidth * k); c.height = Math.round(video.videoHeight * k);
-  c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);
-  scan = {stream, snap: new MotionTracker().snapshot(c), w: c.width, h: c.height};
-  stream = null;  // 交給 scan，不要關
-  analyze(await new Promise(r => c.toBlob(r, "image/jpeg", 0.9)));
-};
-for (const id of ["snap", "pick"]) {
-  $(id).onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (f) analyze(await fileToJpeg(f)); };
-}
+$("go").onclick = () => analyze(picked.parts, picked.manual);
 $("sample").onclick = async () => {
   try { const {result, image} = await api("/api/sample"); finish(result, image); }
   catch (e) { alert(`範例載入失敗：${e.message}`); }
 };
-$("again").onclick = $("retry").onclick = () => { stopLive(); dropScan(); show("home"); };
+$("again").onclick = $("retry").onclick = () => { stopLive(); show("home"); };
 </script>
 </body></html>

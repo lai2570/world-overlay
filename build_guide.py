@@ -41,8 +41,9 @@ SCHEMA = {
         "steps": {"type": "array", "items": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["part_a", "a_where", "part_b", "b_where", "instruction", "why", "confidence"],
+            "required": ["part_a", "a_where", "part_b", "b_where", "instruction", "why", "confidence", "manual_step"],
             "properties": {
+                "manual_step": {"type": "string", "description": "對應說明書的哪一步或哪張圖，例如「第 3 步」；沒有說明書或說明書沒畫到時留空字串"},
                 "part_a": {"type": "string", "description": "這一步拿起來的零件（parts 裡的 name）"},
                 "a_where": {"type": "string", "description": "part_a 上要接的部位，例如「底部的圓柱插銷」"},
                 "part_b": {"type": "string", "description": "要接上去的零件（parts 裡的 name）"},
@@ -64,13 +65,29 @@ PROMPT = (
 )
 
 
-def plan_assembly(key: str, img) -> tuple[dict, float]:
+MANUAL_PROMPT = (
+    "The first image is the product's instruction manual; the second photo shows the actual unassembled parts. "
+    "Follow the manual's assembly steps. Match every part drawn in the manual to the real part in the photo, "
+    "and name and describe parts as they look in the photo, since the photo is what will be annotated. "
+    "List the parts used in mounting (skip cables and electronics) with a short name and a description precise "
+    "enough to find each one in the photo. Then give the mounting steps in the manual's order: the part picked "
+    "up (part_a), the part it attaches to (part_b), and the exact feature on each part where they connect. "
+    "If the manual skips a step that is needed for the parts in the photo, add it and leave manual_step empty. "
+    "Answer in Traditional Chinese."
+)
+
+MANUAL_MAX_SIDE = 1600  # 說明書字小，解析度給高一點
+
+
+def plan_assembly(key: str, img, manual=None) -> tuple[dict, float]:
+    """第一次呼叫：推理組裝步驟。有說明書照片時照說明書的步驟，沒有時自己推理。"""
+    content = [{"type": "text", "text": MANUAL_PROMPT if manual else PROMPT}]
+    if manual:
+        content.append({"type": "image_url", "image_url": {"url": to_data_url(manual)}})
+    content.append({"type": "image_url", "image_url": {"url": to_data_url(img)}})
     body = {
         "model": SPARK_MODEL,
-        "messages": [{"role": "user", "content": [
-            {"type": "text", "text": PROMPT},
-            {"type": "image_url", "image_url": {"url": to_data_url(img)}},
-        ]}],
+        "messages": [{"role": "user", "content": content}],
         "response_format": {"type": "json_schema", "json_schema": {"name": "Guide", "strict": True, "schema": SCHEMA}},
     }
     t0 = time.perf_counter()
@@ -173,10 +190,11 @@ def segment_parts(key: str, img, parts: list[dict], log=print) -> tuple[dict, fl
     return shapes, dt
 
 
-def analyze(key: str, img, log=print) -> tuple[dict, dict, dict]:
-    """完整流程：推理步驟 → 標位置 → 描輪廓。log 用來回報進度（命令列印出來、伺服器給手機看）。"""
-    log("推理組裝步驟")
-    plan, t1 = plan_assembly(key, img)
+def analyze(key: str, img, log=print, manual=None) -> tuple[dict, dict, dict]:
+    """完整流程：推理步驟 → 標位置 → 描輪廓。log 用來回報進度（命令列印出來、伺服器給手機看）。
+    manual 是說明書照片（可省略），只用在推理步驟；標位置和描輪廓都在零件照片上做。"""
+    log("對照說明書推理組裝步驟" if manual else "推理組裝步驟")
+    plan, t1 = plan_assembly(key, img, manual)
     log(f"推理完成：{len(plan['parts'])} 個零件、{len(plan['steps'])} 個步驟（{t1:.0f} 秒）")
     log("標出零件和接口位置")
     located, t2 = locate(key, img, plan)
@@ -209,8 +227,9 @@ def page_data(img, plan: dict, located: dict, shapes: dict) -> dict:
     for s, (a, b) in zip(plan["steps"], located["points"]):
         a = pt(a if len(a) == 2 else centers.get(s["part_a"], []))
         b = pt(b if len(b) == 2 else centers.get(s["part_b"], []))
-        steps.append({k: s[k] for k in ("part_a", "part_b", "instruction", "why", "confidence")}
-                     | {"a": a, "b": b, "a_rel": rel(a, s["part_a"]), "b_rel": rel(b, s["part_b"])})
+        why = f"〔說明書{s['manual_step']}〕{s['why']}" if s.get("manual_step") else s["why"]
+        steps.append({k: s[k] for k in ("part_a", "part_b", "instruction", "confidence")}
+                     | {"why": why, "a": a, "b": b, "a_rel": rel(a, s["part_a"]), "b_rel": rel(b, s["part_b"])})
     shapes = {name: sh | {"d": clean_path(sh["d"])} for name, sh in shapes.items()}
     looks = {p["name"]: p["look"] for p in plan.get("parts", [])}
     return {"w": W, "h": H, "goal": plan["goal"], "steps": steps, "shapes": shapes, "boxes": boxes, "looks": looks}
@@ -256,6 +275,7 @@ startGuide(__DATA__, parseInt(location.hash.slice(1)));  // #3 直接開第 3 �
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image")
+    ap.add_argument("--manual", help="說明書照片（可省略，省略時 AI 自己推理怎麼裝）")
     ap.add_argument("--reuse", action="store_true", help="用上次的 AI 結果重畫網頁，不呼叫 API")
     ap.add_argument("--resam", action="store_true", help="沿用上次的步驟和定位，只重跑 SAM 輪廓")
     args = ap.parse_args()
@@ -277,7 +297,8 @@ def main():
                          encoding="utf-8")
     else:
         t0 = time.perf_counter()
-        plan, located, shapes = analyze(load_api_key(), img, log=lambda msg: print(f"  {msg}"))
+        manual = load_image(args.manual, MANUAL_MAX_SIDE) if args.manual else None
+        plan, located, shapes = analyze(load_api_key(), img, log=lambda msg: print(f"  {msg}"), manual=manual)
         cache.write_text(json.dumps({"plan": plan, "located": located, "shapes": shapes}, ensure_ascii=False),
                          encoding="utf-8")
         print(f"總共 {time.perf_counter() - t0:.1f} 秒")
