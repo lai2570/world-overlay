@@ -99,6 +99,7 @@ function startGuide(D, startStep, onStep) {
 
   return {
     step: () => D.steps[i],
+    data: () => D,
     setOffset(dx, dy) {
       offset = [dx, dy];
       for (const g of moving) g.setAttribute("transform", shiftAttr());

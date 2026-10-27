@@ -14,8 +14,9 @@ from test_grounding import spark_ground
 from test_pipeline import sam_with_prompts, spark_boxes_to_pixels
 
 TRACK_PAD = 0.1       # 鏡頭平移手機端已補償，只留一點餘裕給零件本身移動；太大會描到旁邊的線
-AREA_JUMP = 3.0       # 面積比上次大或小超過 3 倍，視為跟丟
-RELOCATE_EFFORT = "low"  # 重新找零件時用低推理強度，約 5 秒
+AREA_GROW = 1.6       # 面積比上次大 1.6 倍以上，多半是連背景一起描進去（斜放的細長零件很常發生）
+AREA_SHRINK = 3.0     # 小 3 倍以上視為跟丟（零件一部分出畫面時會變小，所以放寬）
+RELOCATE_EFFORT = None  # 重新找零件用預設推理強度（約 10 秒）；low 比較快但框常偏掉
 
 
 def padded(box: list[float], size: tuple[int, int]) -> PromptBox:
@@ -66,9 +67,11 @@ def segment(key: str, img, prompts: dict[str, PromptBox]) -> dict[str, object]:
 
 
 def track(key: str, img, parts: list[dict]) -> dict:
-    """parts: [{name, look?, box: [x1,y1,x2,y2] 像素或 null, area: 上次面積或 null}]"""
+    """parts: [{name, look?, box: [x1,y1,x2,y2] 像素或 null, area: 上次面積或 null}]
+
+    描到背景（面積暴增）的零件放進 kept：手機繼續用上一次的輪廓，不用重新找。"""
     t0 = time.perf_counter()
-    out = {"shapes": {}, "boxes": {}, "areas": {}, "relocated": [], "lost": []}
+    out = {"shapes": {}, "boxes": {}, "areas": {}, "relocated": [], "lost": [], "kept": []}
 
     def accept(name, rec):
         box, area = mask_info(rec)
@@ -86,7 +89,9 @@ def track(key: str, img, parts: list[dict]) -> dict:
             continue
         _, area = mask_info(rec)
         prev = p.get("area")
-        if area <= 0 or (prev and not (1 / AREA_JUMP < area / prev < AREA_JUMP)):
+        if prev and area >= prev * AREA_GROW:
+            out["kept"].append(name)
+        elif area <= 0 or (prev and area <= prev / AREA_SHRINK):
             redo.append(name)
         else:
             accept(name, rec)

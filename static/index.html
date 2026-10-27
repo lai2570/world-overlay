@@ -31,7 +31,7 @@ input[type=file]{display:none}
   background:rgba(0,0,0,.6);color:#fff;font-size:20px}
 /* 分析中 */
 .scan{position:relative;overflow:hidden}
-.scan img{display:block;width:100%;filter:brightness(.55)}
+.scan img,.scan video{display:block;width:100%;filter:brightness(.55)}
 .scan::after{content:"";position:absolute;left:0;right:0;height:3px;top:0;background:var(--b);
   box-shadow:0 0 18px 6px var(--b);animation:scan 2.2s ease-in-out infinite alternate}
 @keyframes scan{to{top:calc(100% - 3px)}}
@@ -63,15 +63,15 @@ input[type=file]{display:none}
 <section class="screen on" id="home">
   <div class="hero">
     <h1>WORLD OVERLAY</h1>
-    <p>把所有零件攤開，拍一張照片。AI 會判斷組裝順序，一步一步讓要接的兩個零件發光，並用箭頭告訴你怎麼接。</p>
+    <p>把所有零件攤開，用鏡頭掃描。AI 會判斷組裝順序，在鏡頭畫面上讓要接的兩個零件發光，並用箭頭告訴你怎麼接。</p>
     <ul class="steps">
       <li><b>1</b>零件分開攤平，背景單純、光線充足</li>
-      <li><b>2</b>從正上方拍，所有零件都要入鏡</li>
-      <li><b>3</b>等待約 1 分鐘分析</li>
+      <li><b>2</b>從正上方對準，所有零件都要入鏡，按下掃描</li>
+      <li><b>3</b>約 1 分鐘分析，期間手機盡量拿穩（放在架子上最好）</li>
     </ul>
   </div>
   <div class="actions">
-    <button class="btn primary" id="shoot">📷 拍零件照片</button>
+    <button class="btn primary" id="shoot">🎥 掃描零件</button>
     <label class="btn" for="pick">🖼 從相簿選照片</label>
     <button class="btn" id="sample">看範例（麥克風組）</button>
     <input type="file" id="snap" accept="image/*" capture="environment">
@@ -83,7 +83,7 @@ input[type=file]{display:none}
 <section class="screen" id="camera">
   <div class="cam">
     <video id="video" playsinline muted autoplay></video>
-    <div class="tip">讓所有零件都在畫面裡</div>
+    <div class="tip">讓所有零件都在畫面裡，按下按鈕掃描</div>
     <button class="close" id="camClose" aria-label="關閉">✕</button>
     <button class="shutter" id="shutter" aria-label="拍照"></button>
   </div>
@@ -91,9 +91,10 @@ input[type=file]{display:none}
 
 <!-- 2. 分析中 -->
 <section class="screen" id="busy">
-  <div class="scan"><img id="busyImg" alt=""></div>
+  <div class="scan"><img id="busyImg" alt=""><video id="busyVideo" playsinline muted autoplay hidden></video></div>
   <div class="progress">
     <h2>AI 分析中</h2>
+    <div class="timer" id="holdTip" hidden>手機盡量對著零件、不要移動，分析完會直接在鏡頭畫面上引導</div>
     <div class="timer" id="timer">0 秒</div>
     <ul class="log" id="log"></ul>
     <div class="err" id="err"></div>
@@ -174,6 +175,9 @@ async function fileToJpeg(file) {
 async function analyze(blob) {
   const url = URL.createObjectURL(blob);
   $("busyImg").src = url;
+  // 鏡頭掃描時分析畫面顯示即時影像，提醒使用者拿穩
+  $("busyImg").hidden = !!scan; $("busyVideo").hidden = !scan; $("holdTip").hidden = !scan;
+  $("busyVideo").srcObject = scan ? scan.stream : null;
   $("log").replaceChildren(); $("log").classList.remove("finished");
   $("err").textContent = ""; $("errNav").style.display = "none";
   show("busy");
@@ -209,6 +213,7 @@ function poll(job, url) {
 
 function fail(msg) {
   clearInterval(timerId);
+  dropScan();
   $("err").textContent = `分析失敗：${msg}`;
   $("errNav").style.display = "flex";
 }
@@ -228,18 +233,23 @@ function finish(result, imgUrl) {
   looks = result.looks || {};  // 零件外觀描述，跟丟時讓 AI 依描述重新找
   guide = startGuide(result, 1, () => live && live.stepChanged());
   $("liveBtn").hidden = !(window.isSecureContext && navigator.mediaDevices?.getUserMedia);
+  // 鏡頭掃描的：直接接著用同一個鏡頭，從掃描那一格的輪廓開始追蹤，不用重新找零件
+  if (scan) { const s = scan; scan = null; $("busyVideo").srcObject = null; startLive(s, result); }
 }
 
 // ---------- 即時鏡頭：畫面比對補償手機移動 + 每隔幾秒請 SAM 重新描輪廓 ----------
 const REFRESH_GAP = 1200;  // 兩次 SAM 之間至少間隔（毫秒），省額度
 let live = null;
 
-async function startLive() {
+// from：鏡頭掃描留下的 {stream, snap, w, h}，result：那一格的分析結果（框和輪廓就是這一格的座標）
+async function startLive(from, result) {
   const video = $("liveVideo");
-  let s;
-  try {
-    s = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment", width: {ideal: 1280}, height: {ideal: 960}}});
-  } catch (e) { return alert(`無法開啟相機：${e.message}`); }
+  let s = from && from.stream;
+  if (!s) {
+    try {
+      s = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment", width: {ideal: 1920}}});
+    } catch (e) { return alert(`無法開啟相機：${e.message}`); }
+  }
   video.srcObject = s;
   await video.play().catch(() => {});
   if (!video.videoWidth) await new Promise(r => video.addEventListener("loadedmetadata", r, {once: true}));
@@ -248,13 +258,38 @@ async function startLive() {
 
   live = {
     stream: s, motion: new MotionTracker(), areas: {}, boxes: {}, tracked: new Set(), busy: false, last: 0, raf: 0, stopped: false,
-    stepChanged() { this.forceRelocate = true; },
+    gen: 0,  // 換步驟就加一，還在路上的舊步驟回應直接丟掉
+    stepChanged() {
+      this.gen++; this.last = 0;
+      // 有掃描基準時，新步驟的零件立刻用掃描那一格的輪廓顯示（平移改成相對掃描那一格）
+      const a = this.anchor, est = a && a.motion.estimate($("liveVideo"));
+      if (est && est.reliable) {
+        this.motion.setKeyframe(a.motion.key);
+        this.boxes = {...a.boxes};
+        this.tracked = new Set(Object.keys(a.boxes));
+        guide.update({shapes: a.shapes, boxes: a.boxes});
+        guide.setOffset(est.dx, est.dy);
+      }
+    },
   };
   $("photo").hidden = true; video.hidden = false;
   $("liveBtn").classList.add("on"); $("liveBtn").textContent = "🎥 即時中";
-  // 換成鏡頭畫面座標；照片上的輪廓位置對不上，先清掉，等第一次追蹤
-  guide.update({w: fw, h: fh, shapes: {}, boxes: {}, live: true});
-  tip("對準所有零件，尋找中…", true);
+  if (from && result && from.w === fw && from.h === fh) {
+    // 分析的就是這個鏡頭的畫面：輪廓直接用，平移相對掃描那一格計算
+    live.motion.setKeyframe(from.snap);
+    // 掃描那一格留著當基準：之後換步驟，新零件從這裡的框加上平移開始找，不用請 AI 重新找
+    live.anchor = {motion: new MotionTracker(), boxes: result.boxes, shapes: result.shapes};
+    live.anchor.motion.setKeyframe(from.snap);
+    live.boxes = {...result.boxes};
+    for (const [n, sh] of Object.entries(result.shapes)) if (sh.area) live.areas[n] = sh.area;
+    for (const n in result.boxes) live.tracked.add(n);
+    guide.update({w: fw, h: fh, shapes: result.shapes, boxes: result.boxes, live: true});
+    tip("追蹤中", false);
+  } else {
+    // 換成鏡頭畫面座標；照片上的輪廓位置對不上，先清掉，等第一次追蹤
+    guide.update({w: fw, h: fh, shapes: {}, boxes: {}, live: true});
+    tip("對準所有零件，尋找中…", true);
+  }
 
   const frame = () => {
     if (live.stopped) return;
@@ -270,7 +305,8 @@ async function startLive() {
 }
 
 async function refresh(video, fw, fh, est) {
-  live.busy = true;
+  const L = live;  // 中途關掉即時鏡頭時 live 會變 null 或換成新的
+  L.busy = true;
   const s = guide.step(), names = [s.part_a, s.part_b];
   const c = document.createElement("canvas");
   c.width = fw; c.height = fh;
@@ -278,27 +314,41 @@ async function refresh(video, fw, fh, est) {
   const snap = live.motion.snapshot(c);
   // 上一格的框加上目前估算的平移 = 這一格的位置；沒追過或要求重新找的給 null
   const dx = est ? est.dx : 0, dy = est ? est.dy : 0;
+  const shift = (b, x, y) => [b[0] + x, b[1] + y, b[2] + x, b[3] + y];
+  let fromAnchor = null;  // 目前畫面相對掃描那一格的平移，算一次就好
   const parts = names.map(n => {
-    const b = live.forceRelocate || !live.tracked.has(n) ? null : live.boxes[n];
-    return {name: n, look: looks[n] || "", area: live.areas[n] || null,
-            box: b ? [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy] : null};
+    let box = null;
+    if (!live.forceRelocate && live.tracked.has(n)) box = shift(live.boxes[n], dx, dy);
+    else if (live.anchor && live.anchor.boxes[n]) {
+      fromAnchor = fromAnchor || live.anchor.motion.estimate(c) || {reliable: false};
+      if (fromAnchor.reliable) box = shift(live.anchor.boxes[n], fromAnchor.dx, fromAnchor.dy);
+    }
+    return {name: n, look: looks[n] || "", area: live.areas[n] || null, box};
   });
   live.forceRelocate = false;
+  const gen = live.gen;
   try {
     const r = await api("/api/track", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({image: c.toDataURL("image/jpeg", 0.8), parts})});
-    if (live.stopped) return;
+    if (L.stopped || gen !== L.gen) return;  // 已換步驟，這份結果不是目前要的零件
+    // 描到背景的零件沿用上一次的輪廓，平移到這一格（送出去的框就是平移後的位置）
+    const prevShapes = guide.data().shapes;
+    for (const n of r.kept || []) {
+      const p = parts.find(q => q.name === n), old = prevShapes[n];
+      if (!p || !p.box || !old) continue;
+      r.shapes[n] = {...old, transform: `translate(${dx} ${dy}) ${old.transform}`};
+      r.boxes[n] = p.box;
+    }
     Object.assign(live.areas, r.areas);
     live.boxes = r.boxes;  // 只保留這一格的框；其他零件的舊框屬於別的畫面，平移對不上
-    for (const n of names) r.boxes[n] ? live.tracked.add(n) : live.tracked.delete(n);
-    for (const n of live.tracked) if (!names.includes(n)) live.tracked.delete(n);
+    live.tracked = new Set(names.filter(n => r.boxes[n]));
     live.motion.setKeyframe(snap);  // 新輪廓屬於這一格，之後的平移都相對它計算
     guide.update({shapes: r.shapes, boxes: r.boxes});
     tip(r.lost.length ? `找不到：${r.lost.join("、")}，請讓它入鏡` : `追蹤中・${r.seconds} 秒更新一次`, !!r.lost.length);
   } catch (e) {
-    if (!live.stopped) tip(`追蹤失敗：${e.message}`, true);
+    if (!L.stopped) tip(`追蹤失敗：${e.message}`, true);
   } finally {
-    live.busy = false; live.last = Date.now();
+    L.busy = false; if (gen === L.gen) L.last = Date.now();
   }
 }
 
@@ -321,6 +371,16 @@ function stopLive() {
 $("liveBtn").onclick = () => live ? stopLive() : startLive();
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopLive(); });
 
+// 鏡頭掃描：按下快門後鏡頭不關，分析完直接進即時引導
+let scan = null;  // {stream, snap, w, h}
+
+function dropScan() {
+  if (!scan) return;
+  scan.stream.getTracks().forEach(t => t.stop());
+  scan = null;
+  $("busyVideo").srcObject = null;
+}
+
 // 有 HTTPS 才能開即時相機；區網 http 時改用手機內建相機拍照
 async function openCamera() {
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return $("snap").click();
@@ -338,7 +398,16 @@ function closeCamera() {
 
 $("shoot").onclick = openCamera;
 $("camClose").onclick = () => { closeCamera(); show("home"); };
-$("shutter").onclick = async () => { const blob = await toJpeg($("video")); closeCamera(); analyze(blob); };
+$("shutter").onclick = async () => {
+  const video = $("video");
+  const k = Math.min(1, MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.round(video.videoWidth * k); c.height = Math.round(video.videoHeight * k);
+  c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);
+  scan = {stream, snap: new MotionTracker().snapshot(c), w: c.width, h: c.height};
+  stream = null;  // 交給 scan，不要關
+  analyze(await new Promise(r => c.toBlob(r, "image/jpeg", 0.9)));
+};
 for (const id of ["snap", "pick"]) {
   $(id).onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (f) analyze(await fileToJpeg(f)); };
 }
@@ -346,6 +415,6 @@ $("sample").onclick = async () => {
   try { const {result, image} = await api("/api/sample"); finish(result, image); }
   catch (e) { alert(`範例載入失敗：${e.message}`); }
 };
-$("again").onclick = $("retry").onclick = () => show("home");
+$("again").onclick = $("retry").onclick = () => { stopLive(); dropScan(); show("home"); };
 </script>
 </body></html>

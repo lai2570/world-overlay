@@ -30,10 +30,12 @@ SCHEMA = {
         "parts": {"type": "array", "items": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["name", "look"],
+            "required": ["name", "look", "where"],
             "properties": {
                 "name": {"type": "string", "description": "短名稱，步驟裡用同一個名稱"},
-                "look": {"type": "string", "description": "外觀與在照片中的位置，讓別人能在照片裡找到它，例如「左上方黑色 C 型金屬夾，帶 T 型螺桿」"},
+                # 外觀和位置分開：即時鏡頭移動後位置就不對了，跟丟時只能用外觀重新找
+                "look": {"type": "string", "description": "只寫外觀（顏色、形狀、材質、明顯特徵），不要寫位置，例如「黑色 C 型金屬夾，帶銀色 T 型螺桿」"},
+                "where": {"type": "string", "description": "在這張照片中的位置，例如「左上方、白色線材旁邊」"},
             },
         }},
         "steps": {"type": "array", "items": {
@@ -82,7 +84,8 @@ def plan_assembly(key: str, img) -> tuple[dict, float]:
 def locate(key: str, img, plan: dict) -> tuple[dict, float]:
     """第二次呼叫：用找零件的流程標出每個零件的框，和每一步兩端接口的點。"""
     parts = plan["parts"]
-    targets = [f"{p['name']}（{p['look']}）" for p in parts]
+    targets = [f"{p['name']}（{p['look']}，{p['where']}）" if p.get("where") else f"{p['name']}（{p['look']}）"
+               for p in parts]
     for s in plan["steps"]:
         targets += [f"{s['part_a']}上的{s['a_where']}", f"{s['part_b']}上的{s['b_where']}"]
     result, dt = spark_ground(key, img, targets)
@@ -165,6 +168,7 @@ def segment_parts(key: str, img, parts: list[dict], log=print) -> tuple[dict, fl
         shapes[part["target"]] = {
             "transform": f"translate({rec.bounds.left} {rec.bounds.top}) scale({sx} {sy})",
             "d": decode_mask_to_svg_path(rec.mask),
+            "area": sum(decode_mask_to_raster(rec.mask)) * sx * sy,  # 即時追蹤用來判斷有沒有描到背景
         }
     return shapes, dt
 

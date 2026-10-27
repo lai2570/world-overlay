@@ -77,7 +77,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (ConnectionError, ssl.SSLError):  # 手機已經關掉頁面或切走，不用回了
+            pass
 
     def send_file(self, path: Path):
         body = path.read_bytes()
@@ -149,7 +152,10 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             return self.send_json({"error": str(e) or e.__class__.__name__}, HTTPStatus.INTERNAL_SERVER_ERROR)
         note = f"，重新找：{'、'.join(result['relocated'])}" if result["relocated"] else ""
-        print(f"[track] {result['seconds']} 秒{note}")
+        note += f"，沿用上次輪廓：{'、'.join(result['kept'])}" if result["kept"] else ""
+        note += f"，找不到：{'、'.join(result['lost'])}" if result["lost"] else ""
+        sent = "、".join(f"{p['name']}{'' if p.get('box') else '(無框)'}" for p in req["parts"])
+        print(f"[track] {result['seconds']} 秒｜{sent}｜描到 {len(result['shapes'])} 個{note}")
         self.send_json(result)
 
     def log_message(self, fmt, *args):
