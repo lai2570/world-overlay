@@ -4,3 +4,4 @@ out/
 samples/
 __pycache__/
 certs/
+users.json

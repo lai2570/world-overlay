@@ -16,7 +16,12 @@
   舊版「一張照片」流程（static/photo.html）：
   POST /api/analyze   body 為 JPEG，或 JSON {image, manual}（都是 data URL，manual 可省略）→ {"job": id}
   GET  /api/sample    → 不呼叫 API，直接回傳 out/mic_parts_guide.json 的範例結果
-設定環境變數 APP_PASSCODE 時，請求要帶 X-Passcode 標頭（放到網路上時避免別人花你的額度）。
+通行碼（放到網路上時避免別人花你的額度）：請求要帶 X-Passcode 標頭。
+  一人一組：.venv/Scripts/python server.py --add-user 小明   → 印出他的通行碼，存在 users.json（不進 git）
+            .venv/Scripts/python server.py --remove-user 小明
+  環境變數 APP_PASSCODE 是自己用的通行碼，不限次數。
+  有設定任何通行碼時：每人每天最多 APP_DAILY_RUNS 次分析（預設 10，用量記在 out/usage.json），
+  全部人同時最多 MAX_RUNNING 個分析在跑。都沒設定時不檢查（只在家裡 Wi-Fi 用）。
 """
 import argparse
 import base64
@@ -25,6 +30,7 @@ import hmac
 import io
 import json
 import os
+import secrets
 import shutil
 import socket
 import ssl
@@ -50,7 +56,13 @@ MAX_UPLOAD = 150 * 1024 * 1024  # 最多 10 個零件（照片或短片）+ 說�
 MAX_PARTS = 10
 MAX_VIDEO = 500 * 1024 * 1024  # 一段影片錄全部零件：100 秒 1080p 約 100–200 MB
 MAX_VIDEO_PARTS = 16
+MAX_PENDING_VIDEOS = 4  # 上傳了還沒分析的影片最多留幾段（記憶體）
 videos: dict[str, bytes] = {}  # 上傳好、等 /api/assemble 取用的整段影片
+USERS_FILE = ROOT / "users.json"
+USAGE_FILE = ROOT / "out" / "usage.json"
+OWNER = "owner"  # APP_PASSCODE 的使用者，不限次數
+DAILY_RUNS = int(os.environ.get("APP_DAILY_RUNS", "10"))
+MAX_RUNNING = 2  # Muse Image 每分鐘 150 張、Spark 也有限制，同時太多人會互相拖慢
 APP_OUT = ROOT / "out" / "app"
 SAMPLE = ROOT / "out" / "mic_parts_guide.json"
 SAMPLE_IMG = ROOT / "samples" / "mic_parts.jpg"
@@ -60,6 +72,32 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset
 
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
+
+
+def load_users() -> dict[str, str]:
+    """{名字: 通行碼}"""
+    users = json.loads(USERS_FILE.read_text(encoding="utf-8")) if USERS_FILE.exists() else {}
+    if os.environ.get("APP_PASSCODE"):
+        users[OWNER] = os.environ["APP_PASSCODE"]
+    return users
+
+
+def take_run(user: str | None) -> str | None:
+    """開始一次分析前檢查額度，可以就記一次；不行回傳原因。"""
+    if user is None:  # 沒設定通行碼
+        return None
+    with jobs_lock:
+        if sum(j["status"] == "running" for j in jobs.values()) >= MAX_RUNNING:
+            return "目前有其他人在分析，請 1–2 分鐘後再試"
+        usage = json.loads(USAGE_FILE.read_text(encoding="utf-8")) if USAGE_FILE.exists() else {}
+        today = usage.setdefault(time.strftime("%Y-%m-%d"), {})
+        if user != OWNER and today.get(user, 0) >= DAILY_RUNS:
+            return f"今天的 {DAILY_RUNS} 次分析已經用完，明天再試"
+        today[user] = today.get(user, 0) + 1
+        USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        USAGE_FILE.write_text(json.dumps(usage, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"[{user}] 今天第 {today[user]} 次分析")
+    return None
 
 
 def run_job(job_id: str, photo: bytes, key: str, manual: bytes | None = None):
@@ -155,12 +193,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def authorized(self) -> bool:
-        code = os.environ.get("APP_PASSCODE")
-        if code and not hmac.compare_digest(self.headers.get("X-Passcode", "").encode(), code.encode()):
-            time.sleep(1)  # 放到網路上時拖慢猜通行碼
-            self.send_json({"error": "通行碼錯誤"}, HTTPStatus.UNAUTHORIZED)
-            return False
-        return True
+        """通行碼對了，self.user 是使用者名字（沒設定通行碼時是 None）。"""
+        users = load_users()
+        self.user = None
+        if not users:
+            return True
+        sent = self.headers.get("X-Passcode", "").strip().encode()
+        for name, code in users.items():
+            if hmac.compare_digest(sent, code.encode()):
+                self.user = name
+                return True
+        time.sleep(1)  # 放到網路上時拖慢猜通行碼
+        self.send_json({"error": "通行碼錯誤"}, HTTPStatus.UNAUTHORIZED)
+        return False
 
     def do_GET(self):
         url = urlparse(self.path)
@@ -208,6 +253,8 @@ class Handler(BaseHTTPRequestHandler):
             data = self.rfile.read(length)
             with jobs_lock:
                 videos[vid] = data
+                while len(videos) > MAX_PENDING_VIDEOS:  # 傳了不分析的：丟最舊的
+                    videos.pop(next(iter(videos)))
             return self.send_json({"video": vid})
         if not 0 < length <= MAX_UPLOAD:
             return self.send_json({"error": f"上傳大小不對（上限 {MAX_UPLOAD // 1024 // 1024} MB）"}, HTTPStatus.BAD_REQUEST)
@@ -226,6 +273,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)
         else:
             photo, manual = body, None
+        if why := take_run(self.user):
+            return self.send_json({"error": why}, HTTPStatus.TOO_MANY_REQUESTS)
         job_id = uuid.uuid4().hex[:8]
         with jobs_lock:
             jobs[job_id] = {"status": "running", "log": [], "started": time.time()}
@@ -247,6 +296,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "找不到上傳的影片，請重新上傳"}, HTTPStatus.BAD_REQUEST)
         elif not 2 <= len(photos) <= MAX_PARTS:
             return self.send_json({"error": f"零件照片要 2 到 {MAX_PARTS} 張"}, HTTPStatus.BAD_REQUEST)
+        if why := take_run(self.user):
+            if video is not None:  # 留著，等一下再按一次不用重新上傳
+                with jobs_lock:
+                    videos[str(req["video"])] = video
+            return self.send_json({"error": why}, HTTPStatus.TOO_MANY_REQUESTS)
         job_id = uuid.uuid4().hex[:8]
         with jobs_lock:
             jobs[job_id] = {"status": "running", "log": [], "started": time.time(), "version": 0}
@@ -308,7 +362,20 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--https", action="store_true", help="用自簽憑證開 HTTPS（即時相機需要）")
+    ap.add_argument("--add-user", metavar="名字", help="產生這個人的通行碼（已經有就換一組）")
+    ap.add_argument("--remove-user", metavar="名字")
     args = ap.parse_args()
+    if args.add_user or args.remove_user:
+        users = json.loads(USERS_FILE.read_text(encoding="utf-8")) if USERS_FILE.exists() else {}
+        if args.add_user:
+            users[args.add_user] = secrets.token_hex(6)
+            print(f"{args.add_user} 的通行碼：{users[args.add_user]}")
+        elif users.pop(args.remove_user, None) is None:
+            print(f"沒有 {args.remove_user}")
+        else:
+            print(f"已移除 {args.remove_user}（伺服器不用重開）")
+        USERS_FILE.write_text(json.dumps(users, ensure_ascii=False, indent=1), encoding="utf-8")
+        return
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     server.api_key = load_api_key()
     ip = lan_ip()
@@ -322,8 +389,8 @@ def main():
     print(f"WORLD OVERLAY 伺服器啟動：手機連同一個 Wi-Fi，打開 {scheme}://{ip}:{args.port}")
     if args.https:
         print("第一次打開會出現安全性警告（自簽憑證），點「進階」→「繼續前往」即可")
-    if os.environ.get("APP_PASSCODE"):
-        print("已啟用通行碼（APP_PASSCODE）")
+    if users := load_users():
+        print(f"已啟用通行碼：{len(users)} 人（{'、'.join(users)}），每人每天 {DAILY_RUNS} 次")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

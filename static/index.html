@@ -59,6 +59,23 @@ input[type=file]{display:none}
 .asm-ov{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;transition:opacity .2s}
 .gen-tip{position:absolute;left:10px;right:10px;bottom:10px;z-index:5;text-align:center;font-size:13px;background:rgba(0,0,0,.65);padding:6px 10px;border-radius:10px}
 .nav button.small{flex:.6}
+button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight:400;padding:10px}
+#recTile{grid-column:span 2;aspect-ratio:auto;min-height:118px;border-color:var(--a);border-style:solid}
+#recTile b{font-size:26px}
+#allPick{aspect-ratio:auto;min-height:118px}
+/* App 內錄影 */
+#rec{position:fixed;inset:0;background:#000;z-index:20}
+#recView{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.rec-hint{position:absolute;left:12px;right:12px;top:calc(12px + env(safe-area-inset-top));background:rgba(0,0,0,.6);
+  color:#fff;font-size:15px;line-height:1.5;padding:10px 14px;border-radius:12px}
+.rec-time{position:absolute;left:0;right:0;bottom:calc(122px + env(safe-area-inset-bottom));text-align:center;color:#fff;
+  font-size:20px;font-variant-numeric:tabular-nums;text-shadow:0 1px 4px #000}
+.rec-time.on::before{content:"● ";color:#f43f5e}
+.rec-bar{position:absolute;left:0;right:0;bottom:calc(24px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-around}
+.rec-bar button{flex:none;background:rgba(0,0,0,.55);color:#fff;border:1px solid #fff6;border-radius:999px;padding:10px 16px;font-size:15px;min-width:76px}
+#recGo{width:78px;height:78px;min-width:0;padding:0;border-radius:50%;border:5px solid #fff;background:#f43f5e}
+#recGo.on{background:#fff}
+#recGo.on::after{content:"";display:block;width:26px;height:26px;margin:auto;background:#f43f5e;border-radius:5px}
 </style></head><body>
 
 <!-- 1. 拍照 -->
@@ -69,7 +86,7 @@ input[type=file]{display:none}
     <div class="label">說明書（可略過）</div>
     <div class="grid"><label class="tile manual" id="manualTile" for="manualIn"><b>📖</b>拍說明書</label></div>
     <div class="label">零件</div>
-    <div class="grid"><label class="tile wide" id="allTile" for="allIn"></label></div>
+    <div class="grid" id="allRow"><button class="tile half" id="recTile"><b>📹</b><span>在 App 裡錄全部零件<br><small>零件放桌上，一個一個拍過去，每個停 2 秒<br>（檔案小、上傳快）</small></span></button><label class="tile half" id="allPick" for="allIn"><b>🎬</b><small>選手機裡的影片</small></label><div class="tile wide filled" id="allTile" hidden></div></div>
     <div class="or" id="orLine">或 一個零件一張照片／一段短片（最多 10 個）</div>
     <div class="grid" id="partsGrid"><label class="tile" id="addTile" for="partsIn"><b>＋</b>拍零件</label><label class="tile" id="vidTile" for="vidIn"><b>🎥</b>錄影轉一圈</label></div>
   </div>
@@ -81,6 +98,14 @@ input[type=file]{display:none}
     <input type="file" id="vidIn" accept="video/*">
     <input type="file" id="allIn" accept="video/*">
   </div>
+</section>
+
+<!-- 1b. App 內錄影 -->
+<section class="screen" id="rec">
+  <video id="recView" autoplay muted playsinline></video>
+  <div class="rec-hint">零件放在桌上，鏡頭一個一個對準，<b>每個停 2 秒</b>再換下一個。畫面中間一次只放一個零件，不用拿起來。</div>
+  <div class="rec-time" id="recTime">按紅色按鈕開始錄（最長 150 秒）</div>
+  <div class="rec-bar"><button id="recCancel">取消</button><button id="recGo" aria-label="開始錄影"></button><span style="min-width:76px"></span></div>
 </section>
 
 <!-- 2. 分析中 -->
@@ -116,7 +141,7 @@ const $ = id => document.getElementById(id);
 const MAX_SIDE = 1280, MANUAL_MAX_SIDE = 1600, MAX_PARTS = 10;  // 和後端一致
 const VIDEO_MAX_MB = 60, VIDEO_MAX_SEC = 15;  // 後端只取前 8 秒；4K 影片很大，先擋掉
 const ALL_MAX_MB = 500, ALL_MAX_SEC = 150;    // 一段影片錄全部零件（原檔直接上傳）
-const ALL_TILE = "<b>🎬</b><span>一段影片錄全部零件<br><small>零件放桌上，鏡頭一個一個拍過去，每個停 2 秒（不用拿起來轉，最長 150 秒）</small></span>";
+const REC_BPS = 2500000;  // App 內錄影：約 720p、每秒 2.5 Mb，60 秒約 19 MB（手機相機 1080p 約 5 倍大）
 let timerId = null, pollId = null, player = null;
 
 function show(id) {
@@ -198,8 +223,8 @@ function renderTiles() {
     mt.append(im, x);
   }
   const at = $("allTile");
-  at.classList.toggle("filled", !!all);
-  at.innerHTML = all ? "" : ALL_TILE;
+  at.hidden = !all; $("recTile").hidden = $("allPick").hidden = !!all;
+  at.replaceChildren();
   if (all) {
     const im = document.createElement("img"); im.src = all.thumb;
     const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", "移除影片");
@@ -209,7 +234,7 @@ function renderTiles() {
   }
   // 整段影片和一個一個拍二選一
   $("orLine").hidden = $("partsGrid").hidden = !!all;
-  at.parentElement.hidden = parts.length > 0;
+  $("allRow").hidden = parts.length > 0;
   const grid = $("partsGrid");
   grid.querySelectorAll(".tile.filled").forEach(t => t.remove());
   parts.forEach((p, n) => {
@@ -253,6 +278,82 @@ $("allIn").onchange = async e => {
     const {thumb, seconds} = await videoThumb(f, ALL_MAX_SEC, `影片太長（上限 ${ALL_MAX_SEC} 秒）`, 2);
     all = {file: f, thumb, seconds}; renderTiles();
   } catch (err) { alert(err.message); }
+};
+
+// ---------- App 內錄影 ----------
+// 用 MediaRecorder 直接錄低位元率的影片，比手機相機 App 錄的檔案小很多；需要 HTTPS（通道或 --https）
+let rec = null;  // {stream, mr, chunks, t0, tick, thumb, cancel}
+
+function recMime() {
+  if (!window.MediaRecorder) return null;
+  return ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+    .find(t => MediaRecorder.isTypeSupported(t)) || "";
+}
+
+function grabFrame() {
+  const v = $("recView"), c = document.createElement("canvas"), k = Math.min(1, 320 / Math.max(v.videoWidth, v.videoHeight));
+  c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.8);
+}
+
+function closeRecorder() {
+  if (!rec) return;
+  clearInterval(rec.tick);
+  rec.stream.getTracks().forEach(t => t.stop());
+  $("recView").srcObject = null;
+  rec = null;
+  show("home");
+}
+
+$("recTile").onclick = async () => {
+  if (!navigator.mediaDevices?.getUserMedia || recMime() === null)
+    return alert("這個瀏覽器不能在 App 裡錄影，請用「選手機裡的影片」");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: false,
+      video: {facingMode: {ideal: "environment"}, width: {ideal: 1280}, height: {ideal: 720}}});
+    rec = {stream};
+    $("recView").srcObject = stream;
+    $("recGo").classList.remove("on"); $("recTime").classList.remove("on");
+    $("recTime").textContent = `按紅色按鈕開始錄（最長 ${ALL_MAX_SEC} 秒）`;
+    show("rec");
+  } catch (e) {
+    alert(`開不了相機：${e.message}
+要用 https 網址打開，並允許相機權限`);
+  }
+};
+
+$("recGo").onclick = () => {
+  if (!rec) return;
+  if (rec.mr) {  // 錄影中：停止
+    if (Date.now() - rec.t0 < 3000) return;
+    return rec.mr.stop();
+  }
+  const type = recMime();
+  const mr = new MediaRecorder(rec.stream, {...(type ? {mimeType: type} : {}), videoBitsPerSecond: REC_BPS});
+  Object.assign(rec, {mr, chunks: [], t0: Date.now(), thumb: null});
+  mr.ondataavailable = e => e.data.size && rec && rec.chunks.push(e.data);
+  mr.onstop = () => {
+    if (!rec || rec.cancel) return closeRecorder();
+    const mime = (mr.mimeType || type || "video/webm").split(";")[0];
+    const file = new File(rec.chunks, `parts.${mime.includes("mp4") ? "mp4" : "webm"}`, {type: mime});
+    all = {file, thumb: rec.thumb || grabFrame(), seconds: (Date.now() - rec.t0) / 1000};
+    closeRecorder();
+    renderTiles();
+  };
+  mr.start(1000);
+  $("recGo").classList.add("on"); $("recTime").classList.add("on");
+  rec.tick = setInterval(() => {
+    const s = (Date.now() - rec.t0) / 1000;
+    $("recTime").textContent = `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}　按白色按鈕停止`;
+    if (!rec.thumb && s > 1.5) rec.thumb = grabFrame();
+    if (s >= ALL_MAX_SEC && mr.state === "recording") mr.stop();
+  }, 250);
+};
+
+$("recCancel").onclick = () => {
+  if (rec?.mr && rec.mr.state === "recording") { rec.cancel = true; rec.mr.stop(); }
+  else closeRecorder();
 };
 
 // 大檔案用 XHR 才看得到上傳進度

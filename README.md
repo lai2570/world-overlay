@@ -80,6 +80,23 @@ SAM 遮罩解碼（`sam_fast.py`）：meta_sam_parser 會把每個遮罩用純 P
 
 命令列也可以帶說明書：`.venv/Scripts/python build_guide.py samples/mic_parts.jpg --manual samples/mic_manual.jpg`
 
+**App 內錄影**：首頁「📹 在 App 裡錄全部零件」直接用瀏覽器錄（MediaRecorder，約 720p、2.5 Mbps），
+60 秒約 19 MB，手機相機 App 錄的 1080p 約大 5 倍；需要 HTTPS（`--https` 或通道）。
+
+## 給隊友試用
+
+API key 只在這台電腦，隊友透過網址用，一人一組通行碼、每人每天限次數：
+
+```bash
+.venv/Scripts/python server.py --add-user 小明        # 印出小明的通行碼（存在 users.json，不進 git）
+.venv/Scripts/python server.py --remove-user 小明     # 收回，伺服器不用重開
+APP_PASSCODE=<自己的> APP_DAILY_RUNS=10 .venv/Scripts/python server.py --https
+cloudflared tunnel --no-autoupdate --url https://localhost:8000 --no-tls-verify   # 印出 https://xxx.trycloudflare.com
+```
+
+每次分析約 US$0.3–0.5；同時最多 2 個分析在跑，用量記在 `out/usage.json`。
+通道網址每次重開都會變；電腦要開著、不能睡眠。
+
 ## 執行測試腳本
 
 ```bash
