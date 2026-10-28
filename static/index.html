@@ -76,6 +76,24 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 #recGo{width:78px;height:78px;min-width:0;padding:0;border-radius:50%;border:5px solid #fff;background:#f43f5e}
 #recGo.on{background:#fff}
 #recGo.on::after{content:"";display:block;width:26px;height:26px;margin:auto;background:#f43f5e;border-radius:5px}
+/* 即時辨識 */
+#seek{position:fixed;inset:0;background:#000;z-index:20}
+#seekView{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.reticle{position:absolute;left:50%;top:38%;width:min(70vw,52vh);aspect-ratio:1;transform:translate(-50%,-50%);
+  border:3px solid var(--a);border-radius:18px;box-shadow:0 0 0 100vmax rgba(0,0,0,.28);pointer-events:none;transition:border-color .2s}
+.reticle.sure{border-color:#4ade80}
+.seek-top{position:absolute;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;color:#fff;font-size:12px}
+.seek-top button{flex:none;background:rgba(0,0,0,.55);color:#fff;border:1px solid #fff6;border-radius:999px;padding:8px 14px;font-size:14px;font-weight:400}
+.seek-card{position:absolute;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));background:rgba(16,18,22,.92);
+  border-radius:16px;padding:12px 14px;color:var(--fg);font-size:15px;line-height:1.45}
+.seek-card .who{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700}
+.seek-card .who img{width:54px;height:54px;object-fit:contain;background:#2a2f37;border-radius:10px}
+.seek-card .tag{font-size:12px;font-weight:400;padding:1px 8px;border-radius:999px;background:#2a2f37;color:var(--mute)}
+.seek-card .tag.ok{background:#14532d;color:#bbf7d0}
+.seek-card .to{display:flex;gap:10px;align-items:center;margin-top:10px}
+.seek-card .to img{width:84px;height:84px;object-fit:contain;background:#2a2f37;border-radius:10px;flex:none}
+.seek-card .alt{color:var(--mute);font-size:13px;margin-top:6px}
+.seek-card .go{margin-top:10px;width:100%}
 </style></head><body>
 
 <!-- 1. 拍照 -->
@@ -122,7 +140,7 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 
 <!-- 3. 組裝動畫 -->
 <section class="screen" id="play">
-  <div class="topbar"><b>WORLD OVERLAY</b><button id="again">重新開始</button></div>
+  <div class="topbar"><b>WORLD OVERLAY</b><span style="display:flex;gap:6px"><button id="seekBtn">📷 對準零件</button><button id="again">重新開始</button></span></div>
   <div class="goal" id="goal"></div>
   <div class="stage-wrap"><div id="stage"></div><div class="gen-tip" id="genTip" hidden>AI 正在畫這一步裝好的樣子…</div></div>
   <div class="card">
@@ -135,6 +153,14 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
   </div>
 </section>
 
+<!-- 4. 即時辨識：鏡頭對著零件 → 這是哪個、要接到哪個 -->
+<section class="screen" id="seek">
+  <video id="seekView" autoplay muted playsinline></video>
+  <div class="reticle" id="reticle"></div>
+  <div class="seek-top"><button id="seekBack">← 回動畫</button><span id="seekMs"></span></div>
+  <div class="seek-card" id="seekCard">把零件放進框裡</div>
+</section>
+
 <script src="/static/assemble.js"></script>
 <script>
 const $ = id => document.getElementById(id);
@@ -142,7 +168,7 @@ const MAX_SIDE = 1280, MANUAL_MAX_SIDE = 1600, MAX_PARTS = 10;  // 和後端一�
 const VIDEO_MAX_MB = 60, VIDEO_MAX_SEC = 15;  // 後端只取前 8 秒；4K 影片很大，先擋掉
 const ALL_MAX_MB = 500, ALL_MAX_SEC = 150;    // 一段影片錄全部零件（原檔直接上傳）
 const REC_BPS = 2500000;  // App 內錄影：約 720p、每秒 2.5 Mb，60 秒約 19 MB（手機相機 1080p 約 5 倍大）
-let timerId = null, pollId = null, player = null;
+let timerId = null, pollId = null, player = null, currentJob = null, currentResult = null;
 
 function show(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
@@ -420,6 +446,7 @@ async function analyze() {
 // 第一步的資料一到就開始播；後面的組裝結果圖陸續補上
 function poll(job) {
   let seen = 0, version = 0;
+  currentJob = job;
   clearInterval(pollId);
   pollId = setInterval(async () => {
     let j;
@@ -427,7 +454,7 @@ function poll(job) {
     for (; seen < j.log.length; seen++) addLog(j.log[seen]);
     if (j.result) {
       version = j.version;
-      if (!player) play(j.result); else player.update(j.result);
+      if (!player) play(j.result); else { player.update(j.result); currentResult = j.result; }
     }
     if (j.status === "done") { clearInterval(pollId); clearInterval(timerId); }
     if (j.status === "error") { if (player) { clearInterval(pollId); } else fail(j.error); }
@@ -436,6 +463,7 @@ function poll(job) {
 
 function play(result) {
   if (!result.steps.length) return fail("AI 沒有找到可以組裝的步驟");
+  currentResult = result;
   clearInterval(timerId);
   $("goal").textContent = `目標：${result.goal}`;
   show("play");
@@ -443,13 +471,139 @@ function play(result) {
   window.player = player;
 }
 
+// ---------- 即時辨識 ----------
+// 每 0.3 秒左右把框裡的畫面送給電腦（DINOv2 比對，約 0.3–0.5 秒），連續兩次一樣才換顯示；
+// 不確定（前兩名分數接近）時請 Muse Spark 確認，確認過的結果優先
+let seek = null;  // {stream, on, recent: [], confirmed: {name, cands, at}, confirming}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function grabCenter() {
+  const v = $("seekView"), vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw) return null;
+  // 畫面用 object-fit: cover 顯示，框在畫面寬 70%（或高 52%）、垂直 38% 的位置：換算回影片座標
+  const W = v.clientWidth, H = v.clientHeight, k = Math.max(W / vw, H / vh);
+  const side = Math.min(W * .7, H * .52) / k, cx = vw / 2 + (W / 2 - W / 2) / k, cy = vh / 2 + (H * .38 - H / 2) / k;
+  const c = document.createElement("canvas"); c.width = c.height = 448;
+  c.getContext("2d").drawImage(v, cx - side / 2, cy - side / 2, side, side, 0, 0, 448, 448);
+  return c.toDataURL("image/jpeg", 0.8);
+}
+
+function partCard(name, tag, alts) {
+  const D = currentResult, card = $("seekCard");
+  const img = D.images[`part:${name}`];
+  const k = D.steps.findIndex(s => s.part_a === name);
+  const kb = D.steps.findIndex(s => s.part_b === name && !s.onto_step);
+  card.replaceChildren();
+  const who = document.createElement("div"); who.className = "who";
+  if (img) who.append(Object.assign(document.createElement("img"), {src: img}));
+  who.append(Object.assign(document.createElement("span"), {textContent: `這是「${name}」`}));
+  if (tag) who.append(Object.assign(document.createElement("span"), {className: "tag" + (tag.ok ? " ok" : ""), textContent: tag.text}));
+  card.append(who);
+  let step = -1;
+  if (k >= 0) {
+    const s = D.steps[k]; step = k;
+    const to = document.createElement("div"); to.className = "to";
+    const bImg = D.images[s.b_img];
+    if (bImg) to.append(Object.assign(document.createElement("img"), {src: bImg}));
+    const t = document.createElement("div");
+    t.innerHTML = `<b>第 ${k + 1} 步：接到「<span class="chip b"></span>」</b><br><span class="i"></span>`;
+    t.querySelector(".chip").textContent = s.onto_step ? `第 ${s.onto_step} 步的組合件` : s.part_b;
+    t.querySelector(".i").textContent = s.instruction;
+    to.append(t);
+    if (s.result && D.images[s.result]) to.append(Object.assign(document.createElement("img"), {src: D.images[s.result], title: "裝好的樣子"}));
+    card.append(to);
+  } else if (kb >= 0) {
+    step = kb;
+    card.append(Object.assign(document.createElement("div"), {className: "alt",
+      textContent: `第 ${kb + 1} 步會把「${D.steps[kb].part_a}」裝到它上面，先放著`}));
+  } else {
+    card.append(Object.assign(document.createElement("div"), {className: "alt", textContent: "這次的步驟裡用不到這個零件"}));
+  }
+  if (alts && alts.length) card.append(Object.assign(document.createElement("div"), {className: "alt", textContent: `也可能是：${alts.join("、")}`}));
+  if (step >= 0) {
+    const b = Object.assign(document.createElement("button"), {className: "go primary", textContent: `看第 ${step + 1} 步的動畫`});
+    b.onclick = () => { stopSeek(); show("play"); player.goto(step); };
+    card.append(b);
+  }
+}
+
+async function confirmPart(image, cands) {
+  if (seek.confirming) return;
+  seek.confirming = true;
+  try {
+    const r = await api("/api/confirm", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({job: currentJob, image, candidates: cands})});
+    if (seek && r.name) seek.confirmed = {name: r.name, cands, at: Date.now()};
+  } catch (e) {} finally { if (seek) seek.confirming = false; }
+}
+
+async function seekLoop() {
+  while (seek && seek.on) {
+    const t = Date.now(), image = grabCenter();
+    if (!image) { await sleep(200); continue; }
+    let r;
+    try {
+      r = await api("/api/identify", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({job: currentJob, image})});
+    } catch (e) {
+      $("seekCard").textContent = `辨識失敗：${e.message}`;
+      await sleep(1500); continue;
+    }
+    if (!seek || !seek.on) break;
+    $("seekMs").textContent = `${r.ms} ms`;
+    const names = r.top.map(t => t[0]), top = names[0];
+    seek.recent = [...seek.recent.slice(-1), top];
+    const stable = seek.recent.length === 2 && seek.recent[0] === seek.recent[1];
+    const c = seek.confirmed;
+    $("reticle").classList.toggle("sure", stable && r.sure);
+    if (c && Date.now() - c.at < 6000 && names.includes(c.name) && !(r.sure && top !== c.name)) {
+      partCard(c.name, {text: "Spark 確認", ok: true});
+    } else if (stable && r.sure) {
+      partCard(top, {text: "確定", ok: true});
+    } else if (stable) {
+      partCard(top, {text: "確認中…"}, names.slice(1, 3));
+      confirmPart(image, names);
+    }
+    await sleep(Math.max(0, 300 - (Date.now() - t)));
+  }
+}
+
+async function startSeek() {
+  if (!currentJob || !currentResult) return;
+  if (!navigator.mediaDevices?.getUserMedia) return alert("這個瀏覽器不能開相機（要用 https 網址）");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: false,
+      video: {facingMode: {ideal: "environment"}, width: {ideal: 1280}, height: {ideal: 720}}});
+    player && player.stop();
+    seek = {stream, on: true, recent: [], confirmed: null, confirming: false};
+    $("seekView").srcObject = stream;
+    $("seekCard").textContent = "把零件放進框裡（第一次要準備零件特徵，約 10 秒）";
+    $("reticle").classList.remove("sure");
+    show("seek");
+    seekLoop();
+  } catch (e) {
+    alert(`開不了相機：${e.message}\n要用 https 網址打開，並允許相機權限`);
+  }
+}
+
+function stopSeek() {
+  if (!seek) return;
+  seek.on = false;
+  seek.stream.getTracks().forEach(t => t.stop());
+  $("seekView").srcObject = null;
+  seek = null;
+}
+
+$("seekBtn").onclick = startSeek;
+$("seekBack").onclick = () => { stopSeek(); show("play"); player && player.goto(0); };
+
 $("go").onclick = analyze;
 $("sample").onclick = async () => {
-  try { const {result} = await api("/api/parts_sample"); player = null; play(result); }
+  try { const {result} = await api("/api/parts_sample"); player = null; currentJob = "sample"; play(result); }
   catch (e) { alert(`範例載入失敗：${e.message}`); }
 };
 $("again").onclick = $("retry").onclick = () => {
-  clearInterval(pollId); clearInterval(timerId);
+  clearInterval(pollId); clearInterval(timerId); stopSeek();
   player && player.stop(); player = null;
   show("home");
 };

@@ -13,6 +13,9 @@
   GET  /api/job?id=&v= → {"status": running|done|error, "log": [...], "version": n, "result": {...}}
                       result 只在 version 比 v 新時才附上（結果裡有圖片，避免每秒重傳）
   GET  /api/parts_sample → 不呼叫 API，回傳 out/parts_sample.json 的範例結果
+  POST /api/identify  JSON {job: id 或 "sample", image: 鏡頭畫面 data URL} → {"top": [[零件, 分數]...], "sure": bool}
+                      即時辨識鏡頭對著哪個零件（identify.py，DINOv2 在這台電腦上跑，不花 API 額度）
+  POST /api/confirm   JSON 同上 → {"name": 零件或 "", "reason"}；不確定時用 Muse Spark 確認（約 3–5 秒）
   舊版「一張照片」流程（static/photo.html）：
   POST /api/analyze   body 為 JPEG，或 JSON {image, manual}（都是 data URL，manual 可省略）→ {"job": id}
   GET  /api/sample    → 不呼叫 API，直接回傳 out/mic_parts_guide.json 的範例結果
@@ -51,6 +54,7 @@ from video_split import split_video
 from build_guide import MANUAL_MAX_SIDE, STATIC, analyze, page_data
 from test_grounding import ROOT, load_api_key, load_image, to_data_url
 from tracker import track
+import identify
 
 MAX_UPLOAD = 150 * 1024 * 1024  # 最多 10 個零件（照片或短片）+ 說明書
 MAX_PARTS = 10
@@ -139,6 +143,9 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | 
         with jobs_lock:
             job["result"] = snap
             job["version"] += 1
+            first = job["version"] == 1
+        if first:  # 去背圖一好就先算即時辨識要用的零件特徵，使用者按「對準零件」時不用等
+            threading.Thread(target=part_index, args=(job_id,), daemon=True).start()
 
     try:
         if video:
@@ -169,6 +176,50 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | 
         traceback.print_exc()
         with jobs_lock:
             job.update(status="error", error=str(e) or e.__class__.__name__)
+
+
+CONFIRM_GAP = 2.0  # 每人兩次 Spark 確認之間至少隔幾秒
+indexes: dict[str, identify.PartIndex] = {}
+index_lock = threading.Lock()
+infer_lock = threading.Lock()  # CPU 一次算一張就好，同時算反而每張都變慢
+last_confirm: dict[str, float] = {}
+
+CONFIRM_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["name", "reason"],
+    "properties": {
+        "name": {"type": "string", "description": "畫面中間那個零件的名稱，必須是清單裡的其中一個；看不出來或不在清單裡給空字串"},
+        "reason": {"type": "string"},
+    },
+}
+
+
+def job_result(job: str) -> dict | None:
+    """分析結果：範例、記憶體裡的工作，或伺服器重開過就讀存檔。"""
+    if job == "sample":
+        return json.loads(PARTS_SAMPLE.read_text(encoding="utf-8"))
+    with jobs_lock:
+        r = (jobs.get(job) or {}).get("result")
+    if r:
+        return r
+    f = APP_OUT / f"{job}_parts.json"
+    if job.isalnum() and f.exists():
+        return json.loads(f.read_text(encoding="utf-8"))
+    return None
+
+
+def part_index(job: str) -> identify.PartIndex | None:
+    """第一次用到時建（每個零件算一次特徵，16 個約 5–10 秒），之後記住。"""
+    with index_lock:
+        if job in indexes:
+            return indexes[job]
+        r = job_result(job)
+        if r is None:
+            return None
+        with infer_lock:
+            indexes[job] = identify.PartIndex.from_result(r)
+        return indexes[job]
 
 
 def decode_data_url(url: str) -> bytes:
@@ -248,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path not in ("/api/analyze", "/api/track", "/api/assemble", "/api/video"):
+        if path not in ("/api/analyze", "/api/track", "/api/assemble", "/api/video", "/api/identify", "/api/confirm"):
             return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         if not self.authorized():
             return
@@ -267,6 +318,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": f"上傳大小不對（上限 {MAX_UPLOAD // 1024 // 1024} MB）"}, HTTPStatus.BAD_REQUEST)
         if path == "/api/track":
             return self.handle_track(self.rfile.read(length))
+        if path in ("/api/identify", "/api/confirm"):
+            return self.handle_identify(self.rfile.read(length), path == "/api/confirm")
         if path == "/api/assemble":
             return self.handle_assemble(self.rfile.read(length))
         body = self.rfile.read(length)
@@ -313,6 +366,47 @@ class Handler(BaseHTTPRequestHandler):
             jobs[job_id] = {"status": "running", "log": [], "started": time.time(), "version": 0}
         threading.Thread(target=run_assemble, args=(job_id, photos, manual, self.server.api_key, video), daemon=True).start()
         self.send_json({"job": job_id})
+
+    def handle_identify(self, body: bytes, confirm: bool):
+        try:
+            req = json.loads(body)
+            job = str(req["job"])
+            frame = load_image(io.BytesIO(decode_data_url(req["image"])), 640)
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError, OSError):
+            return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)
+        if not confirm:
+            idx = part_index(job)
+            if idx is None:
+                return self.send_json({"error": "找不到這次分析的結果"}, HTTPStatus.NOT_FOUND)
+            t = time.perf_counter()
+            with infer_lock:
+                top = idx.match(frame)
+            sure = len(top) < 2 or top[0][1] - top[1][1] >= identify.SURE_MARGIN
+            return self.send_json({"top": [[n, round(s, 2)] for n, s in top[:3]], "sure": sure,
+                                   "ms": round((time.perf_counter() - t) * 1000)})
+        result = job_result(job)
+        if result is None:
+            return self.send_json({"error": "找不到這次分析的結果"}, HTTPStatus.NOT_FOUND)
+        who = self.user or "local"
+        now = time.time()
+        with jobs_lock:
+            if now - last_confirm.get(who, 0) < CONFIRM_GAP:
+                return self.send_json({"error": "太頻繁"}, HTTPStatus.TOO_MANY_REQUESTS)
+            last_confirm[who] = now
+        looks = result.get("looks") or {}
+        names = [k[5:] for k in result["images"] if k.startswith("part:")]
+        listing = "\n".join(f"- {n}" + (f"（{looks[n]}）" if looks.get(n) else "") for n in names)
+        hint = "、".join(str(n) for n in req.get("candidates") or [])
+        prompt = ("這是使用者手機鏡頭的畫面，正對著一個準備組裝的零件。從下面的零件清單裡判斷畫面中間那個是哪一個。"
+                  + (f"影像比對覺得可能是：{hint}。" if hint else "") + "\n零件清單：\n" + listing)
+        try:
+            out = parts_guide.spark_json(self.server.api_key, [{"type": "text", "text": prompt},
+                                                               parts_guide.image_part(frame)],
+                                         CONFIRM_SCHEMA, "WhichPart", "low")
+        except RuntimeError as e:
+            return self.send_json({"error": str(e)}, HTTPStatus.BAD_GATEWAY)
+        name = out["name"] if out["name"] in names else ""
+        return self.send_json({"name": name, "reason": out["reason"]})
 
     def handle_track(self, body: bytes):
         """同步回應（約 2–3 秒；有零件跟丟時約 8 秒）。body: {image: data URL, parts: [...]}"""

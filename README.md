@@ -88,6 +88,17 @@ SAM 遮罩解碼（`sam_fast.py`）：meta_sam_parser 會把每個遮罩用純 P
 **App 內錄影**：首頁「📹 在 App 裡錄全部零件」直接用瀏覽器錄（MediaRecorder，約 720p、2.5 Mbps），
 60 秒約 19 MB，手機相機 App 錄的 1080p 約大 5 倍；需要 HTTPS（`--https` 或通道）。
 
+## 即時辨識：鏡頭對著零件 → 這是哪個、要接到哪裡（`identify.py`）
+
+分析完後在動畫畫面按「📷 對準零件」。手機每 0.3 秒把框裡的畫面送回電腦，用 Meta 開源的 **DINOv2**（ViT-B/14，
+在這台電腦的 CPU 上跑，一張約 0.4 秒、不花 API 額度）和每個零件的去背圖比對，顯示「這是 X → 第 k 步接到 Y」
+和裝好的樣子。比對方法：零件去背圖的每一塊（14×14 像素）在畫面裡找最像的一塊、取平均；
+再換成標準分數，扣掉黑色線材這種「對什麼都像」的零件的優勢。前兩名分數接近時請 **Muse Spark** 確認（約 3–5 秒）。
+實測（不同時間拍的照片對上手機影片的去背圖）6 個零件認對 4 個，認錯的一個是去背失敗的零件。
+
+安裝（CPU 版 PyTorch）：
+`.venv/Scripts/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu && .venv/Scripts/python -m pip install transformers`
+
 ## 給隊友試用
 
 API key 只在這台電腦，隊友透過網址用，一人一組通行碼、每人每天限次數：

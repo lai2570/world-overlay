@@ -155,6 +155,7 @@ function startAssembly(D, onStep) {
       if (JSON.stringify(D.steps[i]) !== before || (!D.pending && !$("genTip").hidden)) draw();
     },
     stop() { cancelAnimationFrame(raf); },
+    goto(k) { go(Math.max(0, Math.min(D.steps.length - 1, k))); },
     seek(ms) { t0 = performance.now() - ms; },  // 跳到動畫的第 ms 毫秒（測試和截圖用）
   };
 }

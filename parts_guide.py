@@ -525,7 +525,8 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
         })
     result = {"goal": p["goal"], "steps": out_steps, "pending": len(steps),
               "images": {f"part:{n}": data_url(_shrink(v["image"]), "png") for n, v in parts.items()},
-              "spins": {n: [data_url(f, "webp") for f in v["spin"]] for n, v in parts.items() if v["spin"]}}
+              "spins": {n: [data_url(f, "webp") for f in v["spin"]] for n, v in parts.items() if v["spin"]},
+              "looks": {n: looks.get(n, "") for n in parts}}
     if publish:
         publish(result)
 
