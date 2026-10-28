@@ -16,6 +16,7 @@
 import argparse
 import asyncio
 import base64
+import copy
 import io
 import json
 import threading
@@ -25,7 +26,7 @@ from pathlib import Path
 
 import requests
 from meta_sam_parser import (FramePrompt, PromptBox, PromptObject, PromptPoint, build_object_prompt,
-                             parse_responses_stream, video_segmentation_format)
+                             image_segmentation_format, parse_responses_stream, video_segmentation_format)
 from PIL import Image, ImageChops, ImageDraw, ImageStat
 
 import sam_fast
@@ -48,6 +49,25 @@ SPIN_CANDIDATES = 18  # 從幾格裡挑轉一圈的格子（追蹤漏掉的會�
 MAX_VIDEOS = 5        # Muse Spark 一次請求最多幾段影片
 SPIN_MIN_AREA = 0.5  # 轉一圈的格子：面積至少要有最清楚那一格的一半，不然是追蹤漏掉了
 VIDEO_EXT = {".mp4", ".mov", ".webm", ".m4v"}
+MAX_CANDIDATES = 5    # 給 Spark 挑的去背候選最多幾個
+MIN_AREA = 0.02       # 候選遮罩至少佔框的 2%，太小的是雜點
+
+# 找零件時多要一個給 SAM 文字提示用的英文名稱（SAM 只認英文的類別名）
+PART_GROUNDING_SCHEMA = copy.deepcopy(GROUNDING_SCHEMA)
+_obj = PART_GROUNDING_SCHEMA["properties"]["objects"]["items"]
+_obj["required"].append("sam_phrase")
+_obj["properties"]["sam_phrase"] = {"type": "string", "description": "1–3 English words naming what the target is, "
+                                    "with its color, e.g. 'white cable', 'black clamp'"}
+
+PICK_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["choice", "reason"],
+    "properties": {
+        "choice": {"type": "integer", "description": "最好的候選編號；都不對給 0"},
+        "reason": {"type": "string"},
+    },
+}
 
 PLAN_SCHEMA = {
     "type": "object",
@@ -161,7 +181,7 @@ def ground(key: str, img, targets: list[str], effort: str | None = GROUND_EFFORT
               "If a target is not visible, set found=false and use empty arrays. "
               "Write scene and reason in Traditional Chinese.\n\nTargets:\n"
               + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(targets)))
-    return spark_json(key, [{"type": "text", "text": prompt}, image_part(img)], GROUNDING_SCHEMA, "Grounding",
+    return spark_json(key, [{"type": "text", "text": prompt}, image_part(img)], PART_GROUNDING_SCHEMA, "Grounding",
                       effort)["objects"]
 
 
@@ -206,9 +226,49 @@ def sam_prompts(box: PromptBox, point, frame: int = 0) -> list[PromptObject]:
     return objs
 
 
-def segment_one(key: str, photo, box: PromptBox, point: list[int]) -> Image.Image | None:
-    """SAM 描出一個零件，回傳整張照片大小的遮罩。只送框附近、縮到 SAM_MAX 的裁切圖：
-    SAM 一次呼叫的時間大多花在上傳，圖越小越快；去背圖最後也只用到 CUTOUT_MAX。"""
+def sam_text(key: str, img: Image.Image, phrase: str):
+    """SAM 3.1 的文字提示：畫面裡所有符合這個類別的物件。"""
+    body = {"model": SAM_MODEL, "stream": True, "input": [{"type": "message", "role": "user", "content": [
+        {"type": "input_text", "text": phrase}, {"type": "input_image", "image_url": to_data_url(img)}]}]}
+    with requests.post(f"{API_BASE}/responses", json=body, stream=True, timeout=120,
+                       headers={"Authorization": f"Bearer {key}"}) as r:
+        r.raise_for_status()
+
+        async def run():
+            return await parse_responses_stream(_sse_events(r), image_segmentation_format()).final_result()
+
+        return asyncio.run(run())
+
+
+def on_white_masked(img: Image.Image, mask: Image.Image) -> Image.Image:
+    """只留遮罩內，其他塗白（同樣構圖，候選之間好比較）。"""
+    out = Image.new("RGB", img.size, (255, 255, 255))
+    out.paste(img, mask=mask)
+    return out
+
+
+def pick_mask(key: str, crop: Image.Image, box: PromptBox, masks: list[Image.Image], part: dict) -> int | None:
+    """讓 Muse Spark 看原圖和每個去背候選，挑出剛好是這個零件的那個；都不對回傳 None。"""
+    marked = crop.copy()
+    ImageDraw.Draw(marked).rectangle([box.left, box.top, box.right - 1, box.bottom - 1], outline=(255, 0, 0), width=3)
+    content = [{"type": "text", "text": (
+        f"The first image shows a part in the red box: {part['name']} ({part['look']}). The following images are "
+        "candidate cutouts of it (everything else painted white). Pick the candidate that shows exactly this part: "
+        "the whole part, nothing missing, and no table, floor, hand or other object included. Thin parts like cables "
+        "count as complete when the whole cable is kept. If no candidate is right, answer 0. "
+        "Write the reason in Traditional Chinese.")}, image_part(marked)]
+    for i, m in enumerate(masks, 1):
+        content += [{"type": "text", "text": f"Candidate {i}:"}, image_part(on_white_masked(crop, m))]
+    n = spark_json(key, content, PICK_SCHEMA, "PickCutout", "low")["choice"]
+    return n - 1 if 1 <= n <= len(masks) else None
+
+
+def segment_one(key: str, photo, box: PromptBox, point: list[int], part: dict | None = None,
+                phrase: str = "") -> Image.Image | None:
+    """SAM 描出一個零件，回傳整張照片大小的遮罩；沒有像樣的結果回傳 None。
+    只送框附近、縮到 SAM_MAX 的裁切圖（SAM 一次呼叫的時間大多花在上傳）。
+    同時送幾種提示拿候選：框、框＋點、框內縮＋角落負向點、文字（英文類別名；白色線材放在米色桌上
+    只給框常描成桌面），再讓 Muse Spark 看候選挑對的那個（part 有給時）。"""
     W, H = photo.size
     bw, bh = box.right - box.left, box.bottom - box.top
     crop_box = (max(0, int(box.left - bw * CROP_PAD)), max(0, int(box.top - bh * CROP_PAD)),
@@ -224,16 +284,60 @@ def segment_one(key: str, photo, box: PromptBox, point: list[int]) -> Image.Imag
     if len(point) == 2:
         pt = PromptPoint(x=min(sw - 1, max(0, int((point[0] * W / 1000 - crop_box[0]) * k))),
                          y=min(sh - 1, max(0, int((point[1] * H / 1000 - crop_box[1]) * k))))
-    result, _ = sam_with_prompts(key, small, sam_prompts(sbox, pt))
-    recs = [r for r in result.records if r.kind == "mask" and fill_ratio(r, sbox) <= LEAK_FILL]
-    if not recs:  # 都連背景一起描進去：框內縮 + 角落負向點重描
-        retry, _ = sam_with_prompts(key, small, [leak_retry_prompt(0, sbox)])
-        recs = [r for r in retry.records if r.kind == "mask"]
-    if not recs:
+
+    calls = [lambda: sam_with_prompts(key, small, sam_prompts(sbox, pt))[0],
+             lambda: sam_with_prompts(key, small, [leak_retry_prompt(0, sbox)])[0]]
+    if phrase:
+        calls.append(lambda: sam_text(key, small, phrase))
+
+    def safe(f):
+        try:
+            return f()
+        except (Exception, SystemExit):  # 某一種提示失敗，其他的照用
+            return None
+
+    with ThreadPoolExecutor(len(calls)) as ex:
+        results = list(ex.map(safe, calls))
+    box_area = max(1, (sbox.right - sbox.left) * (sbox.bottom - sbox.top))
+    area = lambda m: ImageStat.Stat(m).mean[0] / 255 * m.width * m.height
+    cands = []
+    for n, res in enumerate(results):
+        for r in (res.records if res else []):
+            if r.kind != "mask":
+                continue
+            m = mask_full(small, r)
+            bb = m.getbbox()
+            if not bb or area(m) < box_area * MIN_AREA:
+                continue
+            if n == 2:  # 文字提示會描到畫面裡所有同類的東西：只留大部分在框裡的
+                inter = (max(0, min(bb[2], sbox.right) - max(bb[0], sbox.left)) *
+                         max(0, min(bb[3], sbox.bottom) - max(bb[1], sbox.top)))
+                if inter < 0.6 * (bb[2] - bb[0]) * (bb[3] - bb[1]):
+                    continue
+            elif part is None and fill_ratio(r, sbox) > LEAK_FILL:  # 沒有 Spark 把關時，先濾掉描成地板的
+                continue
+            # 和已經有的候選幾乎一樣就不重複
+            if any(area(ImageChops.logical_xor(m.convert("1"), c.convert("1")).convert("L")) < 0.1 * area(m)
+                   for c in cands):
+                continue
+            cands.append(m)
+    if not cands:
         return None
-    best = max(recs, key=lambda r: contrast(small, mask_full(small, r), sbox))
+    cands.sort(key=lambda m: -contrast(small, m, sbox))
+    cands = cands[:MAX_CANDIDATES]
+    best = 0
+    if part is not None:
+        try:
+            best = pick_mask(key, small, sbox, cands, part)
+        except RuntimeError:
+            best = None
+        if best is None:  # Spark 說都不對或呼叫失敗：退回沒描到地板、和背景差最多的那個（比整塊方框好）
+            ok = [n for n, m in enumerate(cands) if area(m) <= box_area * LEAK_FILL]
+            if not ok:
+                return None
+            best = ok[0]
     full = Image.new("L", photo.size, 0)
-    full.paste(mask_full(small, best).resize(crop.size, Image.BILINEAR), crop_box[:2])
+    full.paste(cands[best].resize(crop.size, Image.BILINEAR), crop_box[:2])
     return full
 
 
@@ -308,7 +412,7 @@ def prepare_part(key: str, src, part: dict, points: list[str]) -> dict:
             if abs(far - clip.key) >= len(clip.frames) // 4:
                 views.append(cutout(clip.frames[far], masks[far])[0])
     if full is None:
-        full = segment_one(key, photo, prompt, point)
+        full = segment_one(key, photo, prompt, point, part, objs[0]["sam_phrase"] if objs[0]["found"] else "")
     if full is not None and full.getbbox():
         cut, (left, top) = cutout(photo, full)
     else:  # SAM 沒描到：用框裁切，不去背

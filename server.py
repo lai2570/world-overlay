@@ -151,7 +151,14 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | 
                 log("處理零件影片（轉檔、上傳）")
             with ThreadPoolExecutor(4) as ex:  # 影片要轉檔和上傳，同時做
                 imgs = list(ex.map(lambda p: load_clip(p[0], key) if p[1] else load_image(io.BytesIO(p[0])), photos))
+        # 每個零件用的那一格存下來，去背出錯時可以拿來重跑
+        frames_dir = APP_OUT / f"{job_id}_parts"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        for n, im in enumerate(imgs, 1):
+            getattr(im, "photo", im).save(frames_dir / f"{n}.jpg", quality=92)
         manual_img = load_image(io.BytesIO(manual), MANUAL_MAX_SIDE) if manual else None
+        if manual_img:
+            manual_img.save(frames_dir / "manual.jpg", quality=92)
         result = parts_guide.analyze(key, imgs, manual_img, log=log, publish=publish)
         publish(result)
         APP_OUT.mkdir(parents=True, exist_ok=True)

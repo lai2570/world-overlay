@@ -52,14 +52,17 @@ function startAssembly(D, onStep) {
     if (stage.dataset.step !== String(i)) return;  // 等圖片時已經換步驟
 
     const right = {x: W * LEFT, y: pad, w: W * (1 - LEFT) - pad, h: H - 2 * pad};
-    const rB = eB ? fit(eB.naturalWidth, eB.naturalHeight, right.x, right.y, right.w, right.h) : right;
+    // A 比 B 大很多時（例如懸臂架裝到桌夾上）把 B 縮小，A 照實際比例放得下；不然 B 會被放得很大
+    const big = clamp(s.a_scale || .4, 1, 4);
+    const rB0 = eB ? fit(eB.naturalWidth, eB.naturalHeight, right.x, right.y, right.w, right.h) : right;
+    const rB = {w: rB0.w / big, h: rB0.h / big, x: rB0.x + (rB0.w - rB0.w / big) * .75, y: rB0.y + (rB0.h - rB0.h / big) / 2};
     const rR = eR ? fit(eR.naturalWidth, eR.naturalHeight, right.x, right.y, right.w, right.h) : null;
     // 結果圖淡入後放大到整個畫面（下一步再從右邊開始，和這一步的 B 位置一致）
     const rFull = eR ? fit(eR.naturalWidth, eR.naturalHeight, pad, pad, W - 2 * pad, H - 2 * pad) : null;
     // A 開始時放在左邊區域；裝上去時依 a_scale 換算成相對 B 的大小
     const aw = eA ? eA.naturalWidth : 1, ah = eA ? eA.naturalHeight : 1;
     const start = fit(aw, ah, pad, H * .2, W * LEFT - 2 * pad, H * .6);
-    const len = clamp(s.a_scale || .4, .12, 1) * Math.max(rB.w, rB.h);
+    const len = clamp(s.a_scale || .4, .12, 4) * Math.max(rB.w, rB.h);
     const k = len / Math.max(aw, ah);
     const bp = pt(s.b_pt, rB);
     const ap = s.a_pt && s.a_pt.length === 2 ? [clamp(s.a_pt[0], 0, 1), clamp(s.a_pt[1], 0, 1)] : [.5, .5];
