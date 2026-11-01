@@ -96,8 +96,7 @@ SAM 遮罩解碼（`sam_fast.py`）：meta_sam_parser 會把每個遮罩用純 P
 再換成標準分數，扣掉黑色線材這種「對什麼都像」的零件的優勢。前兩名分數接近時請 **Muse Spark** 確認（約 3–5 秒）。
 實測（不同時間拍的照片對上手機影片的去背圖）6 個零件認對 4 個，認錯的一個是去背失敗的零件。
 
-安裝（CPU 版 PyTorch）：
-`.venv/Scripts/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu && .venv/Scripts/python -m pip install transformers`
+安裝：`requirements.txt` 裡有 CPU 版 PyTorch 和 transformers。
 
 ## 給隊友試用
 
@@ -106,18 +105,29 @@ API key 只在這台電腦，隊友透過網址用，一人一組通行碼、每
 ```bash
 .venv/Scripts/python server.py --add-user 小明        # 印出小明的通行碼（存在 users.json，不進 git）
 .venv/Scripts/python server.py --remove-user 小明     # 收回，伺服器不用重開
-APP_PASSCODE=<自己的> APP_DAILY_RUNS=10 .venv/Scripts/python server.py --https
+APP_PASSCODE=<自己的> APP_DAILY_RUNS=10 .venv/Scripts/python autodeploy.py --https   # 參數交給 server.py
 cloudflared tunnel --no-autoupdate --url https://localhost:8000 --no-tls-verify   # 印出 https://xxx.trycloudflare.com
 ```
 
 每次分析約 US$0.3–0.5；同時最多 2 個分析在跑，用量記在 `out/usage.json`。
 通道網址每次重開都會變；電腦要開著、不能睡眠。
 
+## 一起開發
+
+隊友有 repo 的 Write 權限，在自己電腦上跑（用自己的 API key）。每人開分支 → 推上去 → 開 Pull Request → 合併進 `main`。
+`autodeploy.py` 每 30 秒看一次 `main`，有新 commit 就自動拉到這台電腦：
+
+- 只改 `static/`：拉下來就生效，後端不用重開
+- 改到 `.py`：等沒有分析在跑才重開 `server.py`（約 5 秒連不上）
+- 改到 `requirements.txt`：先 `pip install` 再重開
+
+合併進 `main` 的程式會在這台電腦上、用這台的 API key 執行，合併前要先看過。
+
 ## 執行測試腳本
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python -m pip install requests pillow meta-sam-parser imageio-ffmpeg   # macOS/Linux: .venv/bin/python
+.venv/Scripts/python -m pip install -r requirements.txt   # macOS/Linux: .venv/bin/python
 cp .env.example .env                                  # 填入 MODEL_API_KEY
 .venv/Scripts/python test_grounding.py samples/parts.jpg \
   --target "最長的木板" --target "木釘" --sam "wooden dowel" --runs 3

@@ -66,6 +66,7 @@ USERS_FILE = ROOT / "users.json"
 USAGE_FILE = ROOT / "out" / "usage.json"
 OWNER = "owner"  # APP_PASSCODE 的使用者，不限次數
 DAILY_RUNS = int(os.environ.get("APP_DAILY_RUNS", "10"))
+DEPLOY_TOKEN = os.environ.get("DEPLOY_TOKEN", "")  # autodeploy.py 給的，用來問現在能不能重開
 MAX_RUNNING = 2  # Muse Image 每分鐘 150 張、Spark 也有限制，同時太多人會互相拖慢
 APP_OUT = ROOT / "out" / "app"
 SAMPLE = ROOT / "out" / "mic_parts_guide.json"
@@ -273,6 +274,11 @@ class Handler(BaseHTTPRequestHandler):
             f = (STATIC / url.path.removeprefix("/static/")).resolve()
             if f.parent == STATIC.resolve() and f.is_file():
                 return self.send_file(f)
+        if url.path == "/api/busy" and DEPLOY_TOKEN:  # 只有 autodeploy.py 知道 token（通道進來的也是 127.0.0.1，不能只看 IP）
+            if not hmac.compare_digest(self.headers.get("X-Deploy-Token", ""), DEPLOY_TOKEN):
+                return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            with jobs_lock:
+                return self.send_json({"running": sum(j["status"] == "running" for j in jobs.values())})
         if url.path == "/api/ping":  # 上傳大影片前先確認通行碼
             return self.authorized() and self.send_json({"ok": True})
         if url.path == "/api/job":
