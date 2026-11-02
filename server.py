@@ -13,6 +13,9 @@
   GET  /api/job?id=&v= → {"status": running|done|error, "log": [...], "version": n, "result": {...}}
                       result 只在 version 比 v 新時才附上（結果裡有圖片，避免每秒重傳）
   GET  /api/parts_sample → 不呼叫 API，回傳 out/parts_sample.json 的範例結果
+  GET  /api/models?job= → {"on": bool, "parts": {零件: pending|ready|failed}}；每個零件的 3D 模型（model3d.py，
+                      去背完就開始在背景做，一個約 60 秒）。舊的工作和範例第一次問到時才做
+  GET  /api/model?job=&part= → 那個零件的 glb
   POST /api/identify  JSON {job: id 或 "sample", image: 鏡頭畫面 data URL} → {"top": [[零件, 分數]...], "sure": bool}
                       即時辨識鏡頭對著哪個零件（identify.py，DINOv2 在這台電腦上跑，不花 API 額度）
   POST /api/confirm   JSON 同上 → {"name": 零件或 "", "reason"}；不確定時用 Muse Spark 確認（約 3–5 秒）
@@ -41,6 +44,7 @@ import subprocess
 import threading
 import time
 import traceback
+import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
@@ -73,7 +77,7 @@ SAMPLE = ROOT / "out" / "mic_parts_guide.json"
 SAMPLE_IMG = ROOT / "samples" / "mic_parts.jpg"
 PARTS_SAMPLE = ROOT / "out" / "parts_sample.json"
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
-                 ".js": "text/javascript; charset=utf-8"}
+                 ".js": "text/javascript; charset=utf-8", ".glb": "model/gltf-binary"}
 
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
@@ -147,6 +151,8 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | 
             first = job["version"] == 1
         if first:  # 去背圖一好就先算即時辨識要用的零件特徵，使用者按「對準零件」時不用等
             threading.Thread(target=part_index, args=(job_id,), daemon=True).start()
+            if model3d_on():
+                threading.Thread(target=make_models, args=(job_id, snap), daemon=True).start()
 
     try:
         if video:
@@ -227,6 +233,65 @@ def decode_data_url(url: str) -> bytes:
     return base64.b64decode(url.split(",", 1)[1])
 
 
+MODEL3D = os.environ.get("MODEL3D_URL", "http://127.0.0.1:8766")
+models: dict[str, dict[str, str]] = {}  # 工作 → {零件: pending|ready|failed}，做的過程中用；做完的看存檔
+models_lock = threading.Lock()
+
+
+def model3d_on() -> bool:
+    """3D 模型服務有沒有開。服務一次只處理一個請求，所以只看連不連得上，不等它回應。"""
+    u = urlparse(MODEL3D)
+    try:
+        socket.create_connection((u.hostname, u.port), timeout=1).close()
+        return True
+    except OSError:
+        return False
+
+
+def models_dir(job: str) -> Path:
+    return ROOT / "out" / "parts_sample_3d" if job == "sample" else APP_OUT / f"{job}_3d"
+
+
+def saved_models(job: str) -> dict[str, str | None]:
+    """{零件: glb 檔名，生成失敗是 None}；還沒做的零件不在裡面"""
+    f = models_dir(job) / "models.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+
+
+def model_state(job: str) -> dict[str, str] | None:
+    with models_lock:
+        if job in models:
+            return dict(models[job])
+    saved = saved_models(job)
+    return {n: "ready" if f else "failed" for n, f in saved.items()} or None
+
+
+def make_models(job: str, result: dict):
+    """每個零件的去背圖送給 model3d.py，一個做完就存一個（手機上先做好的先看得到）。"""
+    names = [k[5:] for k in result["images"] if k.startswith("part:")]
+    with models_lock:
+        if job in models:
+            return
+        models[job] = {n: "pending" for n in names}
+    out = models_dir(job)
+    out.mkdir(parents=True, exist_ok=True)
+    manifest = {}
+    for n, name in enumerate(names, 1):
+        req = urllib.request.Request(f"{MODEL3D}/shape", data=decode_data_url(result["images"][f"part:{name}"]))
+        t = time.time()
+        try:
+            with urllib.request.urlopen(req, timeout=900) as r:  # 前面排了別人的零件時要等比較久
+                (out / f"{n}.glb").write_bytes(r.read())
+            manifest[name] = f"{n}.glb"
+        except OSError as e:
+            print(f"[{job}] 3D 模型失敗：{name}（{e}）")
+            manifest[name] = None
+        print(f"[{job}] 3D 模型 {n}/{len(names)} {name} {time.time() - t:.0f} 秒")
+        (out / "models.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+        with models_lock:
+            models[job][name] = "ready" if manifest[name] else "failed"
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "WorldOverlay/0.1"
 
@@ -294,6 +359,23 @@ class Handler(BaseHTTPRequestHandler):
             if job.get("version", 0) <= since and since:
                 job.pop("result", None)  # 手機已經有這一版
             return self.send_json(job)
+        if url.path in ("/api/models", "/api/model"):
+            if not self.authorized():
+                return
+            q = parse_qs(url.query)
+            job = q.get("job", [""])[0]
+            if not (job == "sample" or job.isalnum()):
+                return self.send_json({"error": "找不到這次分析的結果"}, HTTPStatus.NOT_FOUND)
+            if url.path == "/api/model":
+                f = saved_models(job).get(q.get("part", [""])[0])
+                if not f:
+                    return self.send_json({"error": "這個零件還沒有 3D 模型"}, HTTPStatus.NOT_FOUND)
+                return self.send_file(models_dir(job) / f)
+            state, on = model_state(job), model3d_on()
+            if state is None and on and (r := job_result(job)):  # 舊的工作或範例：第一次問到才做
+                threading.Thread(target=make_models, args=(job, r), daemon=True).start()
+                state = {k[5:]: "pending" for k in r["images"] if k.startswith("part:")}
+            return self.send_json({"on": on or bool(state), "parts": state or {}})
         if url.path == "/api/parts_sample":
             return self.send_json({"result": json.loads(PARTS_SAMPLE.read_text(encoding="utf-8"))})
         if url.path == "/api/sample":

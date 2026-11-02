@@ -57,6 +57,13 @@ input[type=file]{display:none}
 .asm.b.cut{filter:drop-shadow(0 0 5px var(--b)) drop-shadow(0 0 12px var(--b))}
 .asm.r{z-index:4}
 .asm-ov{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none;transition:opacity .2s}
+/* 3D 檢視（models3d.js）：蓋在動畫上，A 在上、B 在下 */
+#view3d{position:absolute;inset:0;z-index:6;border-radius:16px;overflow:hidden;display:grid;grid-template-rows:1fr 1fr;gap:2px;
+  background:radial-gradient(ellipse at 60% 45%,#2a2f37,#14171c 75%)}
+#view3d .pane{position:relative;min-height:0}
+#view3d .chip{position:absolute;left:10px;top:8px;z-index:1}
+#view3d model-viewer{width:100%;height:100%;--poster-color:transparent}
+#view3d .wait{margin:0;height:100%;display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:14px;padding:0 16px;text-align:center}
 .gen-tip{position:absolute;left:10px;right:10px;bottom:10px;z-index:5;text-align:center;font-size:13px;background:rgba(0,0,0,.65);padding:6px 10px;border-radius:10px}
 .nav button.small{flex:.6}
 button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight:400;padding:10px}
@@ -140,9 +147,9 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 
 <!-- 3. 組裝動畫 -->
 <section class="screen" id="play">
-  <div class="topbar"><b>WORLD OVERLAY</b><span style="display:flex;gap:6px"><button id="seekBtn">📷 對準零件</button><button id="again">重新開始</button></span></div>
+  <div class="topbar"><b>WORLD OVERLAY</b><span style="display:flex;gap:6px"><button id="btn3d" hidden>🧊 3D</button><button id="seekBtn">📷 對準零件</button><button id="again">重新開始</button></span></div>
   <div class="goal" id="goal"></div>
-  <div class="stage-wrap"><div id="stage"></div><div class="gen-tip" id="genTip" hidden>AI 正在畫這一步裝好的樣子…</div></div>
+  <div class="stage-wrap"><div id="stage"></div><div id="view3d" hidden></div><div class="gen-tip" id="genTip" hidden>AI 正在畫這一步裝好的樣子…</div></div>
   <div class="card">
     <div class="count" id="count"></div>
     <div class="pair"><span class="chip a" id="pa"></span><span>→</span><span class="chip b" id="pb"></span></div>
@@ -162,6 +169,7 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 </section>
 
 <script src="/static/assemble.js"></script>
+<script src="/static/models3d.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const MAX_SIDE = 1280, MANUAL_MAX_SIDE = 1600, MAX_PARTS = 10;  // 和後端一致
@@ -169,6 +177,7 @@ const VIDEO_MAX_MB = 60, VIDEO_MAX_SEC = 15;  // 後端只取前 8 秒；4K 影�
 const ALL_MAX_MB = 500, ALL_MAX_SEC = 150;    // 一段影片錄全部零件（原檔直接上傳）
 const REC_BPS = 2500000;  // App 內錄影：約 720p、每秒 2.5 Mb，60 秒約 19 MB（手機相機 1080p 約 5 倍大）
 let timerId = null, pollId = null, player = null, currentJob = null, currentResult = null;
+let models3d = null, stepNow = 0;
 
 function show(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
@@ -467,8 +476,12 @@ function play(result) {
   clearInterval(timerId);
   $("goal").textContent = `目標：${result.goal}`;
   show("play");
-  player = startAssembly(result);
+  stepNow = 0;
+  player = startAssembly(result, i => { stepNow = i; models3d && models3d.step(); });
   window.player = player;
+  models3d && models3d.stop();
+  // 3D 開著時停掉底下的平面動畫，關掉時從這一步重播
+  models3d = startModels(currentJob, () => currentResult.steps[stepNow], on => on ? player.stop() : player.goto(stepNow));
 }
 
 // ---------- 即時辨識 ----------
@@ -605,6 +618,7 @@ $("sample").onclick = async () => {
 $("again").onclick = $("retry").onclick = () => {
   clearInterval(pollId); clearInterval(timerId); stopSeek();
   player && player.stop(); player = null;
+  models3d && models3d.stop(); models3d = null;
   show("home");
 };
 renderTiles();
