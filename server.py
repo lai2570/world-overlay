@@ -5,7 +5,8 @@
   .venv/Scripts/python server.py --port 9000
 
 分析要 1 分鐘左右，所以用「建立工作 → 輪詢進度」：
-  POST /api/assemble  JSON {parts: [data URL...], manual: data URL 或 null} → {"job": id}
+  POST /api/assemble  JSON {parts: [data URL...], manual: [data URL...] 或 null} → {"job": id}
+                      manual 是說明書的每一頁（照片，或手機把 PDF 每頁畫成的圖），最多 MAX_MANUAL_PAGES 頁
                       一個零件一張照片或一段轉一圈的影片（data:video/...）→ 組裝動畫（parts_guide.py）；
                       去背完就有初步結果，之後每一步的圖陸續補上
   POST /api/video     body 是影片原檔（不轉 base64，省 1/3）→ {"video": id}；一段影片錄全部零件時用
@@ -63,6 +64,7 @@ import identify
 
 MAX_UPLOAD = 150 * 1024 * 1024  # 最多 10 個零件（照片或短片）+ 說明書
 MAX_PARTS = 10
+MAX_MANUAL_PAGES = 20  # 和手機端一致
 MAX_VIDEO = 500 * 1024 * 1024  # 一段影片錄全部零件：100 秒 1080p 約 100–200 MB
 MAX_VIDEO_PARTS = 16
 MAX_PENDING_VIDEOS = 4  # 上傳了還沒分析的影片最多留幾段（記憶體）
@@ -142,7 +144,7 @@ def run_job(job_id: str, photo: bytes, key: str, manual: bytes | None = None):
             job.update(status="error", error=str(e) or e.__class__.__name__)
 
 
-def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | None, key: str,
+def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: list[bytes], key: str,
                  video: bytes | None = None, lang: str = "zh"):
     job = jobs[job_id]
 
@@ -179,10 +181,10 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | 
         frames_dir.mkdir(parents=True, exist_ok=True)
         for n, im in enumerate(imgs, 1):
             getattr(im, "photo", im).save(frames_dir / f"{n}.jpg", quality=92)
-        manual_img = load_image(io.BytesIO(manual), MANUAL_MAX_SIDE) if manual else None
-        if manual_img:
-            manual_img.save(frames_dir / "manual.jpg", quality=92)
-        result = parts_guide.analyze(key, imgs, manual_img, log=log, publish=publish, lang=lang)
+        manual_imgs = [load_image(io.BytesIO(m), MANUAL_MAX_SIDE) for m in manual]
+        for n, im in enumerate(manual_imgs, 1):
+            im.save(frames_dir / f"manual{n}.jpg", quality=92)
+        result = parts_guide.analyze(key, imgs, manual_imgs, log=log, publish=publish, lang=lang)
         publish(result)
         APP_OUT.mkdir(parents=True, exist_ok=True)
         (APP_OUT / f"{job_id}_parts.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -472,9 +474,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             req = json.loads(body)
             photos = [(decode_data_url(u), u.startswith("data:video/")) for u in req.get("parts") or []]
-            manual = decode_data_url(req["manual"]) if req.get("manual") else None
+            pages = req.get("manual") or []
+            manual = [decode_data_url(u) for u in ([pages] if isinstance(pages, str) else pages)]  # 舊版手機送一張字串
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             return self.send_json({"error": self.t("上傳格式不對", "Bad upload format")}, HTTPStatus.BAD_REQUEST)
+        if len(manual) > MAX_MANUAL_PAGES:
+            return self.send_json({"error": self.t(f"說明書最多 {MAX_MANUAL_PAGES} 頁",
+                                                   f"The manual can have at most {MAX_MANUAL_PAGES} pages")},
+                                  HTTPStatus.BAD_REQUEST)
         video = None
         if req.get("video"):
             with jobs_lock:

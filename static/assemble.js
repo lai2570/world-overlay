@@ -4,7 +4,7 @@
 //                       a_img, a_pt, b_img, b_pt, result}], images: {key: data URL}, pending,
 //        spins: {零件名稱: [轉一圈的去背圖 data URL...]}}（零件是用影片拍的才有 spins）
 //   a_pt / b_pt 是接口在圖片裡的相對位置（0–1），可能是 null（AI 沒找到，改用圖片中心）。
-// 頁面上需要這些 id：stage count pa pb inst why conf prev next replay done genTip；文字用 i18n.js 的 t()
+// 頁面上需要這些 id：stage count pa pb inst why conf prev next replay genTip doneView doneImg；文字用 i18n.js 的 t()
 function startAssembly(D, onStep) {
   const $ = id => document.getElementById(id);
   const stage = $("stage");
@@ -130,18 +130,26 @@ function startAssembly(D, onStep) {
     $("conf").textContent = CONF[s.confidence] || "";
     $("prev").disabled = i === 0;
     $("next").textContent = t(i === D.steps.length - 1 ? "finish" : "next");
-    $("done").style.display = "none";
     const waiting = !s.result && D.pending > 0;
     $("genTip").hidden = !waiting;
     build();
   }
 
-  function go(k) { i = k; draw(); onStep && onStep(i); }
+  // 最後一步按「完成」：停掉動畫，蓋上完成畫面（有最後一步的組裝結果圖就放上去）
+  function finish() {
+    cancelAnimationFrame(raf);
+    const last = D.steps[D.steps.length - 1], src = last.result && D.images[last.result];
+    $("doneImg").hidden = !src;
+    if (src) $("doneImg").src = src;
+    $("doneView").hidden = false;
+  }
+
+  function go(k) { i = k; $("doneView").hidden = true; draw(); onStep && onStep(i); }
 
   $("prev").onclick = () => { if (i > 0) go(i - 1); };
   $("next").onclick = () => {
     if (i < D.steps.length - 1) go(i + 1);
-    else { cancelAnimationFrame(raf); $("done").style.display = "block"; }
+    else finish();
   };
   $("replay").onclick = () => { t0 = performance.now(); };
   window.addEventListener("resize", () => build());
@@ -154,7 +162,7 @@ function startAssembly(D, onStep) {
       D = next;
       if (JSON.stringify(D.steps[i]) !== before || (!D.pending && !$("genTip").hidden)) draw();
     },
-    stop() { cancelAnimationFrame(raf); },
+    stop() { cancelAnimationFrame(raf); $("doneView").hidden = true; },
     goto(k) { go(Math.max(0, Math.min(D.steps.length - 1, k))); },
     seek(ms) { t0 = performance.now() - ms; },  // 跳到動畫的第 ms 毫秒（測試和截圖用）
   };

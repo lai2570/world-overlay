@@ -23,6 +23,12 @@
 .tile b{color:var(--fg);font-size:22px;font-weight:400}
 .tile.filled{border-style:solid;border-color:#3a404a}
 .tile.manual.filled{border-color:var(--b)}
+.tile .pages{position:absolute;inset:auto 5px 5px 5px;background:rgba(0,0,0,.75);color:#fff;font-size:12px;padding:1px 7px;border-radius:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 全部步驟完成：蓋在動畫上 */
+#doneView{position:absolute;inset:0;z-index:7;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px;background:radial-gradient(ellipse at 60% 45%,#2a2f37,#14171c 75%);text-align:center}
+#doneView img{max-width:100%;min-height:0;flex:1 1 auto;object-fit:contain;border-radius:10px}
+#doneView b{font-size:20px}
+#doneView .row{display:flex;gap:10px;width:100%}
 .tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .tile .v{position:absolute;left:5px;bottom:5px;background:rgba(0,0,0,.7);color:#fff;font-size:12px;padding:0 7px;border-radius:8px}
 .tile .n{position:absolute;left:5px;top:5px;background:rgba(0,0,0,.7);color:#fff;font-size:12px;padding:0 7px;border-radius:8px}
@@ -114,7 +120,7 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
     <div class="hero-top"><h1>WORLD OVERLAY</h1><div class="lang"><button data-lang="en">EN</button><button data-lang="zh">中文</button></div></div>
     <p data-i18n="intro"></p>
     <div class="label" data-i18n="manualLabel"></div>
-    <div class="grid"><label class="tile manual" id="manualTile" for="manualIn"></label></div>
+    <div class="grid" id="manualGrid"><label class="tile" id="manualTile" for="manualIn" data-i18n-html="manualTile"></label><label class="tile" id="pdfTile" for="pdfIn" data-i18n-html="pdfTile"></label></div>
     <div class="label" data-i18n="partsLabel"></div>
     <div class="grid" id="allRow"><button class="tile half" id="recTile"><b>📹</b><span data-i18n-html="recTile"></span></button><label class="tile half" id="allPick" for="allIn"><b>🎬</b><small data-i18n="allPick"></small></label><div class="tile wide filled" id="allTile" hidden></div></div>
     <div class="or" id="orLine" data-i18n="orLine"></div>
@@ -123,7 +129,8 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
   <div class="actions">
     <button class="btn primary" id="go" disabled></button>
     <button class="btn" id="sample" data-i18n="sample"></button>
-    <input type="file" id="manualIn" accept="image/*">
+    <input type="file" id="manualIn" accept="image/*" multiple>
+    <input type="file" id="pdfIn" accept="application/pdf,.pdf">
     <input type="file" id="partsIn" accept="image/*" multiple>
     <input type="file" id="vidIn" accept="video/*">
     <input type="file" id="allIn" accept="video/*">
@@ -154,13 +161,12 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 <section class="screen" id="play">
   <div class="topbar"><b>WORLD OVERLAY</b><span style="display:flex;gap:6px"><button id="btn3d" hidden>🧊 3D</button><button id="seekBtn" data-i18n="seekBtn"></button><button id="again" data-i18n="again"></button></span></div>
   <div class="goal" id="goal"></div>
-  <div class="stage-wrap"><div id="stage"></div><div id="view3d" hidden></div><div class="gen-tip" id="genTip" hidden data-i18n="genTip"></div></div>
+  <div class="stage-wrap"><div id="stage"></div><div id="view3d" hidden></div><div class="gen-tip" id="genTip" hidden data-i18n="genTip"></div><div id="doneView" hidden><img id="doneImg" alt=""><b data-i18n="allDone"></b><div class="row"><button id="doneReplay" data-i18n="watchAgain"></button><button class="primary" id="doneNew" data-i18n="again"></button></div></div></div>
   <div class="card">
     <div class="count" id="count"></div>
     <div class="pair"><span class="chip a" id="pa"></span><span>→</span><span class="chip b" id="pb"></span></div>
     <p class="inst" id="inst"></p>
     <details><summary><span data-i18n="whyLabel"></span><span class="conf" id="conf"></span></summary><p id="why"></p></details>
-    <div class="done" id="done" data-i18n="allDone"></div>
     <div class="nav"><button id="prev" data-i18n="prev"></button><button class="small" id="replay">↻</button><button class="primary" id="next" data-i18n="next"></button></div>
   </div>
 </section>
@@ -250,19 +256,27 @@ async function videoToPart(file) {
 }
 
 // ---------- 拍照 ----------
-let manual = null, all = null;  // all：一段影片錄全部零件 {file, thumb, seconds}
+const MANUAL_MAX_PAGES = 20;  // 說明書照片和 PDF 頁數加起來最多幾頁（和後端一致）
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+let manuals = [], all = null;  // manuals：[{thumb, pages: [data URL...], pdf: 檔名, total: PDF 總頁數}]；all：一段影片錄全部零件 {file, thumb, seconds}
+const manualPages = () => manuals.flatMap(m => m.pages);
 const parts = [];  // {data: 上傳用的 data URL, thumb: 縮圖, video: 是不是影片}
 
 function renderTiles() {
-  const mt = $("manualTile");
-  mt.classList.toggle("filled", !!manual);
-  mt.innerHTML = manual ? "" : t("manualTile");
-  if (manual) {
-    const im = document.createElement("img"); im.src = manual;
+  const mg = $("manualGrid");
+  mg.querySelectorAll(".tile.filled").forEach(el => el.remove());
+  manuals.forEach((m, n) => {
+    const tile = document.createElement("div"); tile.className = "tile manual filled";
+    const im = document.createElement("img"); im.src = m.thumb;
     const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", t("removeManual"));
-    x.onclick = e => { e.preventDefault(); manual = null; renderTiles(); };
-    mt.append(im, x);
-  }
+    x.onclick = () => { manuals.splice(n, 1); renderTiles(); };
+    tile.append(im, x);
+    if (m.pdf) tile.append(Object.assign(document.createElement("span"), {className: "pages",
+      textContent: t("pdfPages", m.pages.length, m.total)}));
+    mg.insertBefore(tile, $("manualTile"));
+  });
+  $("manualTile").hidden = $("pdfTile").hidden = manualPages().length >= MANUAL_MAX_PAGES;
+  mg.append($("manualTile"), $("pdfTile"));
   const at = $("allTile");
   at.hidden = !all; $("recTile").hidden = $("allPick").hidden = !!all;
   at.replaceChildren();
@@ -291,13 +305,49 @@ function renderTiles() {
   $("addTile").hidden = $("vidTile").hidden = parts.length >= MAX_PARTS;
   grid.append($("addTile"), $("vidTile"));
   $("go").disabled = !all && parts.length < 2;
-  const m = t(manual ? "goWithManual" : "goNoManual");
+  const m = t(manuals.length ? "goWithManual" : "goNoManual");
   $("go").textContent = all ? t("goVideo", m) : parts.length < 2 ? t("goNeed2") : t("goParts", m, parts.length);
 }
 
 $("manualIn").onchange = async e => {
+  const files = [...e.target.files].slice(0, MANUAL_MAX_PAGES - manualPages().length); e.target.value = "";
+  for (const f of files) { const data = await fileToDataUrl(f, MANUAL_MAX_SIDE); manuals.push({thumb: data, pages: [data]}); }
+  renderTiles();
+};
+
+// PDF 說明書：在手機上用 pdf.js 把每一頁畫成圖，和說明書照片一樣上傳（後端不用處理 PDF）
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  return new Promise((ok, bad) => {
+    const s = Object.assign(document.createElement("script"), {src: PDFJS + "pdf.min.js"});
+    s.onload = () => { pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.js"; ok(pdfjsLib); };
+    s.onerror = () => bad(new Error(t("pdfFailed")));
+    document.head.appendChild(s);
+  });
+}
+
+$("pdfIn").onchange = async e => {
   const f = e.target.files[0]; e.target.value = "";
-  if (f) { manual = await fileToDataUrl(f, MANUAL_MAX_SIDE); renderTiles(); }
+  if (!f) return;
+  const tile = $("pdfTile"), label = tile.innerHTML;
+  try {
+    const lib = await loadPdfJs();
+    const doc = await lib.getDocument({data: await f.arrayBuffer()}).promise;
+    const n = Math.min(doc.numPages, MANUAL_MAX_PAGES - manualPages().length), pages = [];
+    for (let i = 1; i <= n; i++) {
+      tile.textContent = t("pdfReading", i, n);
+      const page = await doc.getPage(i), v = page.getViewport({scale: 1});
+      const vp = page.getViewport({scale: MANUAL_MAX_SIDE / Math.max(v.width, v.height)});
+      const c = document.createElement("canvas"); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);  // 透明背景的 PDF 轉 JPEG 會變黑
+      await page.render({canvasContext: g, viewport: vp}).promise;
+      pages.push(c.toDataURL("image/jpeg", 0.85));
+    }
+    if (pages.length) manuals.push({thumb: pages[0], pages, pdf: f.name, total: doc.numPages});
+    if (doc.numPages > n) alert(t("pdfTruncated", n, doc.numPages));
+  } catch (err) { alert(err.message || t("pdfFailed")); }
+  tile.innerHTML = label;
+  renderTiles();
 };
 $("partsIn").onchange = async e => {
   const files = [...e.target.files].slice(0, MAX_PARTS - parts.length); e.target.value = "";
@@ -446,10 +496,10 @@ async function analyze() {
       const li = $("log").lastChild;
       await api("/api/ping");  // 先確認通行碼，免得大檔案傳完才被擋
       const video = await uploadVideo(all.file, f => li.textContent = `${mb} ${Math.round(f * 100)}%`);
-      body = {manual, video, lang: LANG};
+      body = {manual: manualPages(), video, lang: LANG};
     } else {
-      addLog(t("uploadPhotos", !!manual, parts.some(p => p.video)));
-      body = {manual, parts: parts.map(p => p.data), lang: LANG};
+      addLog(t("uploadPhotos", manuals.length > 0, parts.some(p => p.video)));
+      body = {manual: manualPages(), parts: parts.map(p => p.data), lang: LANG};
     }
     const {job} = await api("/api/assemble", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body)});
@@ -620,6 +670,8 @@ $("sample").onclick = async () => {
   try { const {result, job} = await api(`/api/parts_sample?lang=${LANG}`); player = null; currentJob = job; play(result); }
   catch (e) { alert(t("sampleFailed", e.message)); }
 };
+$("doneReplay").onclick = () => player && player.goto(0);
+$("doneNew").onclick = () => $("again").click();
 $("again").onclick = $("retry").onclick = () => {
   clearInterval(pollId); clearInterval(timerId); stopSeek();
   player && player.stop(); player = null;

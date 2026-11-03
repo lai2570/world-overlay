@@ -44,7 +44,7 @@ function startModels(job, getStep, onToggle) {
       return div;
     }
     const mv = document.createElement("model-viewer");
-    for (const [k, v] of Object.entries({"camera-controls": "", "auto-rotate": "", "auto-rotate-delay": "0", ar: "",
+    for (const [k, v] of Object.entries({"camera-controls": "", "touch-action": "none", "auto-rotate": "", "auto-rotate-delay": "1500", ar: "",
       "ar-modes": "webxr quick-look", "shadow-intensity": "1", exposure: "1.1", "interaction-prompt": "none", alt: name}))
       mv.setAttribute(k, v);
     mv.addEventListener("load", () => {  // 生成的形狀沒有材質，塗上 A／B 的顏色

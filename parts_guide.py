@@ -150,10 +150,14 @@ def image_part(img) -> dict:
 
 
 def plan(key: str, photos: list, manual=None, lang: str = "zh") -> dict:
-    note = "; the first image is the instruction manual, the part photos follow it" if manual else ""
+    """manual：說明書一張圖，或每一頁一張圖的 list（照片或 PDF 頁），可省略。"""
+    pages = manual if isinstance(manual, list) else [manual] if manual else []
+    note = (f"; first come the {len(pages)} page(s) of the instruction manual in order, then the part photos"
+            if pages else "")
     content = [{"type": "text", "text": PLAN_PROMPT.format(n=len(photos), manual_note=note, language=LANGUAGES[lang])}]
-    if manual:
-        content.append(image_part(manual))
+    for i, page in enumerate(pages, 1):
+        content.append({"type": "text", "text": f"Manual page {i}:"})
+        content.append(image_part(page))
     # 一次請求最多 5 段影片。從同一段錄全部零件的影片切出來的：送整段一次 + 每個零件的時間段和最清楚那一格；
     # 個別短片超過 5 段：多的只送最清楚那一格
     sources = list(dict.fromkeys(p.source[0] for p in photos if isinstance(p, Clip) and p.source))
@@ -604,12 +608,12 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("photos", nargs="+", help="零件照片或轉一圈的影片（.mp4/.mov/.webm），一個零件一個")
-    ap.add_argument("--manual", help="說明書照片（可省略）")
+    ap.add_argument("--manual", nargs="+", help="說明書照片，可以多頁（可省略）")
     ap.add_argument("--out", default=str(ROOT / "out" / "parts_guide.json"))
     args = ap.parse_args()
     key = load_api_key()
     photos = [load_clip_file(p, key) if Path(p).suffix.lower() in VIDEO_EXT else load_image(p) for p in args.photos]
-    manual = load_image(args.manual, MANUAL_MAX_SIDE) if args.manual else None
+    manual = [load_image(m, MANUAL_MAX_SIDE) for m in args.manual or []]
     result = analyze(key, photos, manual, log=lambda m: print(f"  {m}"))
     Path(args.out).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     for n, s in enumerate(result["steps"], 1):
