@@ -12,7 +12,8 @@
   POST /api/assemble  JSON {video: id, manual} → 先切成每個零件一段（video_split.py），後面一樣
   GET  /api/job?id=&v= → {"status": running|done|error, "log": [...], "version": n, "result": {...}}
                       result 只在 version 比 v 新時才附上（結果裡有圖片，避免每秒重傳）
-  GET  /api/parts_sample → 不呼叫 API，回傳 out/parts_sample.json 的範例結果
+  GET  /api/parts_sample?lang=en → 不呼叫 API，回傳 out/parts_sample.json 的範例結果（en：照 sample_en.json 翻成英文，工作 id 是 sample_en）
+語言：手機帶 X-Lang: en 標頭時錯誤訊息用英文；/api/assemble 的 JSON 帶 lang: "en" 時 AI 用英文寫步驟和進度。沒帶是中文。
   GET  /api/models?job= → {"on": bool, "parts": {零件: pending|ready|failed}}；每個零件的 3D 模型（model3d.py，
                       去背完就開始在背景做，一個約 60 秒）。舊的工作和範例第一次問到時才做
   GET  /api/model?job=&part= → 那個零件的 glb
@@ -76,6 +77,8 @@ APP_OUT = ROOT / "out" / "app"
 SAMPLE = ROOT / "out" / "mic_parts_guide.json"
 SAMPLE_IMG = ROOT / "samples" / "mic_parts.jpg"
 PARTS_SAMPLE = ROOT / "out" / "parts_sample.json"
+SAMPLE_EN = ROOT / "sample_en.json"  # 範例的英文翻譯（零件名稱、目標、每一步的說明）
+SAMPLES = ("sample", "sample_en")
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
                  ".js": "text/javascript; charset=utf-8", ".glb": "model/gltf-binary"}
 
@@ -91,17 +94,22 @@ def load_users() -> dict[str, str]:
     return users
 
 
-def take_run(user: str | None) -> str | None:
+def tr(lang: str, zh: str, en: str) -> str:
+    return en if lang == "en" else zh
+
+
+def take_run(user: str | None, lang: str = "zh") -> str | None:
     """開始一次分析前檢查額度，可以就記一次；不行回傳原因。"""
     if user is None:  # 沒設定通行碼
         return None
     with jobs_lock:
         if sum(j["status"] == "running" for j in jobs.values()) >= MAX_RUNNING:
-            return "目前有其他人在分析，請 1–2 分鐘後再試"
+            return tr(lang, "目前有其他人在分析，請 1–2 分鐘後再試", "Someone else is analyzing right now, try again in 1–2 minutes")
         usage = json.loads(USAGE_FILE.read_text(encoding="utf-8")) if USAGE_FILE.exists() else {}
         today = usage.setdefault(time.strftime("%Y-%m-%d"), {})
         if user != OWNER and today.get(user, 0) >= DAILY_RUNS:
-            return f"今天的 {DAILY_RUNS} 次分析已經用完，明天再試"
+            return tr(lang, f"今天的 {DAILY_RUNS} 次分析已經用完，明天再試",
+                      f"You have used all {DAILY_RUNS} analyses for today, try again tomorrow")
         today[user] = today.get(user, 0) + 1
         USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
         USAGE_FILE.write_text(json.dumps(usage, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -135,7 +143,7 @@ def run_job(job_id: str, photo: bytes, key: str, manual: bytes | None = None):
 
 
 def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | None, key: str,
-                 video: bytes | None = None):
+                 video: bytes | None = None, lang: str = "zh"):
     job = jobs[job_id]
 
     def log(msg: str):
@@ -156,13 +164,14 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | 
 
     try:
         if video:
-            imgs = split_video(key, video, log)
+            imgs = split_video(key, video, log, lang)
             if len(imgs) < 2:
-                raise RuntimeError(f"影片裡只找到 {len(imgs)} 個零件，請一次拿一個、每個轉幾秒")
+                raise RuntimeError(tr(lang, f"影片裡只找到 {len(imgs)} 個零件，請一次拿一個、每個轉幾秒",
+                                      f"Only found {len(imgs)} part(s) in the video; film the parts one at a time"))
             imgs = imgs[:MAX_VIDEO_PARTS]
         else:
             if any(v for _, v in photos):
-                log("處理零件影片（轉檔、上傳）")
+                log(tr(lang, "處理零件影片（轉檔、上傳）", "Processing the part videos"))
             with ThreadPoolExecutor(4) as ex:  # 影片要轉檔和上傳，同時做
                 imgs = list(ex.map(lambda p: load_clip(p[0], key) if p[1] else load_image(io.BytesIO(p[0])), photos))
         # 每個零件用的那一格存下來，去背出錯時可以拿來重跑
@@ -173,7 +182,7 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: bytes | 
         manual_img = load_image(io.BytesIO(manual), MANUAL_MAX_SIDE) if manual else None
         if manual_img:
             manual_img.save(frames_dir / "manual.jpg", quality=92)
-        result = parts_guide.analyze(key, imgs, manual_img, log=log, publish=publish)
+        result = parts_guide.analyze(key, imgs, manual_img, log=log, publish=publish, lang=lang)
         publish(result)
         APP_OUT.mkdir(parents=True, exist_ok=True)
         (APP_OUT / f"{job_id}_parts.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -206,6 +215,8 @@ def job_result(job: str) -> dict | None:
     """分析結果：範例、記憶體裡的工作，或伺服器重開過就讀存檔。"""
     if job == "sample":
         return json.loads(PARTS_SAMPLE.read_text(encoding="utf-8"))
+    if job == "sample_en":
+        return english_sample()
     with jobs_lock:
         r = (jobs.get(job) or {}).get("result")
     if r:
@@ -214,6 +225,21 @@ def job_result(job: str) -> dict | None:
     if job.isalnum() and f.exists():
         return json.loads(f.read_text(encoding="utf-8"))
     return None
+
+
+def english_sample() -> dict:
+    """範例換成英文：零件名稱（也是圖片的 key）、目標、每一步的說明和理由。"""
+    r = json.loads(PARTS_SAMPLE.read_text(encoding="utf-8"))
+    en = json.loads(SAMPLE_EN.read_text(encoding="utf-8"))
+    names = en["names"]
+    r["goal"] = en["goal"]
+    for s, t in zip(r["steps"], en["steps"]):
+        s.update(t, part_a=names[s["part_a"]], part_b=names[s["part_b"]])
+        for k in ("a_img", "b_img"):
+            if (s[k] or "").startswith("part:"):
+                s[k] = "part:" + names[s[k][5:]]
+    r["images"] = {("part:" + names[k[5:]] if k.startswith("part:") else k): v for k, v in r["images"].items()}
+    return r
 
 
 def part_index(job: str) -> identify.PartIndex | None:
@@ -249,7 +275,7 @@ def model3d_on() -> bool:
 
 
 def models_dir(job: str) -> Path:
-    return ROOT / "out" / "parts_sample_3d" if job == "sample" else APP_OUT / f"{job}_3d"
+    return ROOT / "out" / f"parts_{job}_3d" if job in SAMPLES else APP_OUT / f"{job}_3d"
 
 
 def saved_models(job: str) -> dict[str, str | None]:
@@ -316,6 +342,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    @property
+    def lang(self) -> str:
+        return "en" if self.headers.get("X-Lang") == "en" else "zh"
+
+    def t(self, zh: str, en: str) -> str:
+        return tr(self.lang, zh, en)
+
     def authorized(self) -> bool:
         """通行碼對了，self.user 是使用者名字（沒設定通行碼時是 None）。"""
         users = load_users()
@@ -328,7 +361,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.user = name
                 return True
         time.sleep(1)  # 放到網路上時拖慢猜通行碼
-        self.send_json({"error": "通行碼錯誤"}, HTTPStatus.UNAUTHORIZED)
+        self.send_json({"error": self.t("通行碼錯誤", "Wrong passcode")}, HTTPStatus.UNAUTHORIZED)
         return False
 
     def do_GET(self):
@@ -354,7 +387,7 @@ class Handler(BaseHTTPRequestHandler):
             with jobs_lock:
                 job = dict(jobs.get(job_id) or {}, log=list((jobs.get(job_id) or {}).get("log", [])))
             if not job:
-                return self.send_json({"error": "找不到這個工作"}, HTTPStatus.NOT_FOUND)
+                return self.send_json({"error": self.t("找不到這個工作", "Job not found")}, HTTPStatus.NOT_FOUND)
             job.pop("started", None)
             if job.get("version", 0) <= since and since:
                 job.pop("result", None)  # 手機已經有這一版
@@ -364,12 +397,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             q = parse_qs(url.query)
             job = q.get("job", [""])[0]
-            if not (job == "sample" or job.isalnum()):
-                return self.send_json({"error": "找不到這次分析的結果"}, HTTPStatus.NOT_FOUND)
+            if not (job in SAMPLES or job.isalnum()):
+                return self.send_json({"error": self.t("找不到這次分析的結果", "Result not found")}, HTTPStatus.NOT_FOUND)
             if url.path == "/api/model":
                 f = saved_models(job).get(q.get("part", [""])[0])
                 if not f:
-                    return self.send_json({"error": "這個零件還沒有 3D 模型"}, HTTPStatus.NOT_FOUND)
+                    return self.send_json({"error": self.t("這個零件還沒有 3D 模型", "No 3D model for this part yet")}, HTTPStatus.NOT_FOUND)
                 return self.send_file(models_dir(job) / f)
             state, on = model_state(job), model3d_on()
             if state is None and on and (r := job_result(job)):  # 舊的工作或範例：第一次問到才做
@@ -377,7 +410,9 @@ class Handler(BaseHTTPRequestHandler):
                 state = {k[5:]: "pending" for k in r["images"] if k.startswith("part:")}
             return self.send_json({"on": on or bool(state), "parts": state or {}})
         if url.path == "/api/parts_sample":
-            return self.send_json({"result": json.loads(PARTS_SAMPLE.read_text(encoding="utf-8"))})
+            en = parse_qs(url.query).get("lang") == ["en"]
+            return self.send_json({"result": english_sample() if en else json.loads(PARTS_SAMPLE.read_text(encoding="utf-8")),
+                                   "job": "sample_en" if en else "sample"})
         if url.path == "/api/sample":
             saved = json.loads(SAMPLE.read_text(encoding="utf-8"))
             img = load_image(SAMPLE_IMG)
@@ -394,7 +429,9 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         if path == "/api/video":
             if not 0 < length <= MAX_VIDEO:
-                return self.send_json({"error": f"影片大小不對（上限 {MAX_VIDEO // 1024 // 1024} MB）"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": self.t(f"影片大小不對（上限 {MAX_VIDEO // 1024 // 1024} MB）",
+                                                       f"Video size not allowed (max {MAX_VIDEO // 1024 // 1024} MB)")},
+                                      HTTPStatus.BAD_REQUEST)
             vid = uuid.uuid4().hex[:8]
             data = self.rfile.read(length)
             with jobs_lock:
@@ -403,7 +440,9 @@ class Handler(BaseHTTPRequestHandler):
                     videos.pop(next(iter(videos)))
             return self.send_json({"video": vid})
         if not 0 < length <= MAX_UPLOAD:
-            return self.send_json({"error": f"上傳大小不對（上限 {MAX_UPLOAD // 1024 // 1024} MB）"}, HTTPStatus.BAD_REQUEST)
+            return self.send_json({"error": self.t(f"上傳大小不對（上限 {MAX_UPLOAD // 1024 // 1024} MB）",
+                                                   f"Upload size not allowed (max {MAX_UPLOAD // 1024 // 1024} MB)")},
+                                  HTTPStatus.BAD_REQUEST)
         if path == "/api/track":
             return self.handle_track(self.rfile.read(length))
         if path in ("/api/identify", "/api/confirm"):
@@ -418,10 +457,10 @@ class Handler(BaseHTTPRequestHandler):
                 photo = base64.b64decode(req["image"].split(",", 1)[1])
                 manual = base64.b64decode(req["manual"].split(",", 1)[1]) if req.get("manual") else None
             except (ValueError, KeyError, IndexError):
-                return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": self.t("上傳格式不對", "Bad upload format")}, HTTPStatus.BAD_REQUEST)
         else:
             photo, manual = body, None
-        if why := take_run(self.user):
+        if why := take_run(self.user, self.lang):
             return self.send_json({"error": why}, HTTPStatus.TOO_MANY_REQUESTS)
         job_id = uuid.uuid4().hex[:8]
         with jobs_lock:
@@ -435,16 +474,18 @@ class Handler(BaseHTTPRequestHandler):
             photos = [(decode_data_url(u), u.startswith("data:video/")) for u in req.get("parts") or []]
             manual = decode_data_url(req["manual"]) if req.get("manual") else None
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-            return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)
+            return self.send_json({"error": self.t("上傳格式不對", "Bad upload format")}, HTTPStatus.BAD_REQUEST)
         video = None
         if req.get("video"):
             with jobs_lock:
                 video = videos.pop(str(req["video"]), None)
             if video is None:
-                return self.send_json({"error": "找不到上傳的影片，請重新上傳"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": self.t("找不到上傳的影片，請重新上傳", "Uploaded video not found, please upload again")},
+                                      HTTPStatus.BAD_REQUEST)
         elif not 2 <= len(photos) <= MAX_PARTS:
-            return self.send_json({"error": f"零件照片要 2 到 {MAX_PARTS} 張"}, HTTPStatus.BAD_REQUEST)
-        if why := take_run(self.user):
+            return self.send_json({"error": self.t(f"零件照片要 2 到 {MAX_PARTS} 張", f"Add 2 to {MAX_PARTS} part photos")},
+                                  HTTPStatus.BAD_REQUEST)
+        if why := take_run(self.user, self.lang):
             if video is not None:  # 留著，等一下再按一次不用重新上傳
                 with jobs_lock:
                     videos[str(req["video"])] = video
@@ -452,7 +493,9 @@ class Handler(BaseHTTPRequestHandler):
         job_id = uuid.uuid4().hex[:8]
         with jobs_lock:
             jobs[job_id] = {"status": "running", "log": [], "started": time.time(), "version": 0}
-        threading.Thread(target=run_assemble, args=(job_id, photos, manual, self.server.api_key, video), daemon=True).start()
+        lang = "en" if req.get("lang") == "en" else "zh"
+        threading.Thread(target=run_assemble, args=(job_id, photos, manual, self.server.api_key, video, lang),
+                         daemon=True).start()
         self.send_json({"job": job_id})
 
     def handle_identify(self, body: bytes, confirm: bool):
@@ -461,11 +504,11 @@ class Handler(BaseHTTPRequestHandler):
             job = str(req["job"])
             frame = load_image(io.BytesIO(decode_data_url(req["image"])), 640)
         except (ValueError, KeyError, IndexError, TypeError, AttributeError, OSError):
-            return self.send_json({"error": "上傳格式不對"}, HTTPStatus.BAD_REQUEST)
+            return self.send_json({"error": self.t("上傳格式不對", "Bad upload format")}, HTTPStatus.BAD_REQUEST)
         if not confirm:
             idx = part_index(job)
             if idx is None:
-                return self.send_json({"error": "找不到這次分析的結果"}, HTTPStatus.NOT_FOUND)
+                return self.send_json({"error": self.t("找不到這次分析的結果", "Result not found")}, HTTPStatus.NOT_FOUND)
             t = time.perf_counter()
             with infer_lock:
                 top = idx.match(frame)
@@ -474,12 +517,12 @@ class Handler(BaseHTTPRequestHandler):
                                    "ms": round((time.perf_counter() - t) * 1000)})
         result = job_result(job)
         if result is None:
-            return self.send_json({"error": "找不到這次分析的結果"}, HTTPStatus.NOT_FOUND)
+            return self.send_json({"error": self.t("找不到這次分析的結果", "Result not found")}, HTTPStatus.NOT_FOUND)
         who = self.user or "local"
         now = time.time()
         with jobs_lock:
             if now - last_confirm.get(who, 0) < CONFIRM_GAP:
-                return self.send_json({"error": "太頻繁"}, HTTPStatus.TOO_MANY_REQUESTS)
+                return self.send_json({"error": self.t("太頻繁", "Too many requests")}, HTTPStatus.TOO_MANY_REQUESTS)
             last_confirm[who] = now
         looks = result.get("looks") or {}
         names = [k[5:] for k in result["images"] if k.startswith("part:")]

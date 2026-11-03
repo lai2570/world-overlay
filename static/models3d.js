@@ -1,6 +1,6 @@
 // 3D 檢視：這一步的零件 A、B 換成 Hunyuan3D 生成的形狀（model3d.py → /api/models），手指拖曳旋轉，支援的手機可以按 AR 放到桌上。
 // 模型在背景一個一個做（每個約 60 秒），還沒好的顯示「生成中」，好了自動換上。
-// 頁面上需要這些 id：view3d btn3d；api() 和 passcodeHeaders() 由 index.html 提供。
+// 頁面上需要這些 id：view3d btn3d；api() 和 passcodeHeaders() 由 index.html 提供，t() 由 i18n.js 提供。
 const MODEL_VIEWER = "https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js";
 
 function startModels(job, getStep, onToggle) {
@@ -39,7 +39,7 @@ function startModels(job, getStep, onToggle) {
     if (st !== "ready") {
       const p = document.createElement("p");
       p.className = "wait";
-      p.textContent = st === "failed" ? "這個零件做不出 3D 形狀" : "3D 模型生成中…（一個零件約 1 分鐘）";
+      p.textContent = t(st === "failed" ? "fail3d" : "gen3d");
       div.appendChild(p);
       return div;
     }
@@ -53,7 +53,7 @@ function startModels(job, getStep, onToggle) {
         m.pbrMetallicRoughness.setRoughnessFactor(.55);
       }
     });
-    glb(name).then(u => { mv.src = u; }, () => { mv.replaceWith(Object.assign(document.createElement("p"), {className: "wait", textContent: "模型載入失敗"})); });
+    glb(name).then(u => { mv.src = u; }, () => { mv.replaceWith(Object.assign(document.createElement("p"), {className: "wait", textContent: t("load3dFailed")})); });
     div.appendChild(mv);
     return div;
   }
@@ -65,13 +65,13 @@ function startModels(job, getStep, onToggle) {
     if (key === shown) return;  // 輪詢時沒變就不要重建（不然轉到一半會跳回去）
     shown = key;
     view.replaceChildren(pane(s.part_a, "a", s.part_a),
-                         pane(s.part_b, "b", s.onto_step ? `裝到組合件（${s.part_b}）` : `裝到 ${s.part_b}`));
+                         pane(s.part_b, "b", s.onto_step ? t("attachToAssembly", s.part_b) : t("attachTo", s.part_b)));
   }
 
   function toggle(v) {
     on = v;
     view.hidden = !on;
-    btn.textContent = on ? "▶ 動畫" : "🧊 3D";
+    btn.textContent = on ? t("anim") : "🧊 3D";
     if (on && !customElements.get("model-viewer") && !document.querySelector(`script[src="${MODEL_VIEWER}"]`))
       document.head.appendChild(Object.assign(document.createElement("script"), {type: "module", src: MODEL_VIEWER}));
     shown = "";

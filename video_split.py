@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from clip import FPS, Clip, sharpest, transcode, upload
-from parts_guide import spark_json
+from parts_guide import LANGUAGES, spark_json
 from test_grounding import load_api_key
 
 MAX_SECONDS = 150   # 整段影片最長取幾秒
@@ -50,16 +50,17 @@ SPLIT_PROMPT = (
     "shown twice, list it once with its clearest showing. Each moment has one part in focus: list only that one, "
     "not other parts at the edges or in the background (they get their own turn). "
     "Do not list hands, the table or the floor. "
-    "Write name and look in Traditional Chinese."
+    "Write name and look in {language}."
 )
 
 
-def split_video(api_key: str, raw: bytes, log=print) -> list[Clip]:
+def split_video(api_key: str, raw: bytes, log=print, lang: str = "zh") -> list[Clip]:
+    en = lang == "en"
     data, frames = transcode(raw, MAX_SECONDS)
     seconds = len(frames) / FPS
-    log(f"AI 看整段影片找零件（{seconds:.0f} 秒）")
+    log(f"AI is finding the parts in the video ({seconds:.0f} s)" if en else f"AI 看整段影片找零件（{seconds:.0f} 秒）")
     fid = upload(data, api_key, "all_parts.mp4")
-    content = [{"type": "text", "text": SPLIT_PROMPT.format(seconds=seconds)},
+    content = [{"type": "text", "text": SPLIT_PROMPT.format(seconds=seconds, language=LANGUAGES[lang])},
                {"type": "file", "file": {"file_id": fid}}]
     found = spark_json(api_key, content, SPLIT_SCHEMA, "PartsInVideo")["parts"]
     segs = []
@@ -71,7 +72,10 @@ def split_video(api_key: str, raw: bytes, log=print) -> list[Clip]:
         if end - start < SEG_MIN:
             start, end = max(0.0, best - SEG_MIN / 2), min(seconds, best + SEG_MIN / 2)
         segs.append((p, start, end, best))
-    log(f"找到 {len(segs)} 個零件：" + "、".join(f"{p['name']}（{s:.0f}–{e:.0f} 秒）" for p, s, e, _ in segs))
+    if en:
+        log(f"Found {len(segs)} parts: " + ", ".join(f"{p['name']} ({s:.0f}–{e:.0f} s)" for p, s, e, _ in segs))
+    else:
+        log(f"找到 {len(segs)} 個零件：" + "、".join(f"{p['name']}（{s:.0f}–{e:.0f} 秒）" for p, s, e, _ in segs))
 
     def pick(seg) -> Clip:
         _, start, end, best = seg

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0d10">
 <title>WORLD OVERLAY</title>
@@ -11,6 +11,10 @@
 .screen.on{display:flex}
 .hero{padding:24px 20px 8px;display:flex;flex-direction:column;gap:12px}
 .hero h1{margin:0;font-size:28px;letter-spacing:.06em}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lang{display:flex;gap:4px}
+.lang button{flex:none;padding:5px 11px;font-size:13px;font-weight:400;border-radius:999px;background:none;color:var(--mute);border:1px solid #3a404a}
+.lang button.on{color:var(--fg);border-color:var(--a)}
 .hero p{margin:0;color:var(--mute)}
 .label{font-size:14px;color:var(--mute);margin:6px 0 -4px}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
@@ -47,6 +51,7 @@ input[type=file]{display:none}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 4px;font-size:13px;color:var(--mute);gap:12px}
 .topbar b{color:var(--fg);letter-spacing:.08em}
 .topbar button{flex:none;background:none;border:1px solid #3a404a;color:var(--fg);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:400}
+@media (max-width:440px){.topbar>b{display:none}.topbar{justify-content:flex-end}}  /* 手機上按鈕放不下，標題讓位 */
 .goal{padding:0 16px 8px;font-size:13px;color:var(--mute)}
 .stage-wrap{position:relative;margin:0 12px}
 #stage{position:relative;height:min(62vh,560px);border-radius:16px;overflow:hidden;
@@ -106,18 +111,18 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 <!-- 1. 拍照 -->
 <section class="screen on" id="home">
   <div class="hero">
-    <h1>WORLD OVERLAY</h1>
-    <p>零件放在桌上錄一段影片，一個一個拍過去（或一個零件拍一張），AI 會判斷怎麼裝，做出零件飛過去接上的動畫，並畫出每一步裝好的樣子。</p>
-    <div class="label">說明書（可略過）</div>
-    <div class="grid"><label class="tile manual" id="manualTile" for="manualIn"><b>📖</b>拍說明書</label></div>
-    <div class="label">零件</div>
-    <div class="grid" id="allRow"><button class="tile half" id="recTile"><b>📹</b><span>在 App 裡錄全部零件<br><small>零件放桌上，一個一個拍過去，每個停 2 秒<br>（檔案小、上傳快）</small></span></button><label class="tile half" id="allPick" for="allIn"><b>🎬</b><small>選手機裡的影片</small></label><div class="tile wide filled" id="allTile" hidden></div></div>
-    <div class="or" id="orLine">或 一個零件一張照片／一段短片（最多 10 個）</div>
-    <div class="grid" id="partsGrid"><label class="tile" id="addTile" for="partsIn"><b>＋</b>拍零件</label><label class="tile" id="vidTile" for="vidIn"><b>🎥</b>錄影轉一圈</label></div>
+    <div class="hero-top"><h1>WORLD OVERLAY</h1><div class="lang"><button data-lang="en">EN</button><button data-lang="zh">中文</button></div></div>
+    <p data-i18n="intro"></p>
+    <div class="label" data-i18n="manualLabel"></div>
+    <div class="grid"><label class="tile manual" id="manualTile" for="manualIn"></label></div>
+    <div class="label" data-i18n="partsLabel"></div>
+    <div class="grid" id="allRow"><button class="tile half" id="recTile"><b>📹</b><span data-i18n-html="recTile"></span></button><label class="tile half" id="allPick" for="allIn"><b>🎬</b><small data-i18n="allPick"></small></label><div class="tile wide filled" id="allTile" hidden></div></div>
+    <div class="or" id="orLine" data-i18n="orLine"></div>
+    <div class="grid" id="partsGrid"><label class="tile" id="addTile" for="partsIn" data-i18n-html="addTile"></label><label class="tile" id="vidTile" for="vidIn" data-i18n-html="vidTile"></label></div>
   </div>
   <div class="actions">
-    <button class="btn primary" id="go" disabled>至少拍 2 個零件</button>
-    <button class="btn" id="sample">看範例（麥克風組）</button>
+    <button class="btn primary" id="go" disabled></button>
+    <button class="btn" id="sample" data-i18n="sample"></button>
     <input type="file" id="manualIn" accept="image/*">
     <input type="file" id="partsIn" accept="image/*" multiple>
     <input type="file" id="vidIn" accept="video/*">
@@ -128,35 +133,35 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 <!-- 1b. App 內錄影 -->
 <section class="screen" id="rec">
   <video id="recView" autoplay muted playsinline></video>
-  <div class="rec-hint">零件放在桌上，鏡頭一個一個對準，<b>每個停 2 秒</b>再換下一個。畫面中間一次只放一個零件，不用拿起來。</div>
-  <div class="rec-time" id="recTime">按紅色按鈕開始錄（最長 150 秒）</div>
-  <div class="rec-bar"><button id="recCancel">取消</button><button id="recGo" aria-label="開始錄影"></button><span style="min-width:76px"></span></div>
+  <div class="rec-hint" data-i18n-html="recHint"></div>
+  <div class="rec-time" id="recTime"></div>
+  <div class="rec-bar"><button id="recCancel" data-i18n="cancel"></button><button id="recGo" data-i18n-label="recGo"></button><span style="min-width:76px"></span></div>
 </section>
 
 <!-- 2. 分析中 -->
 <section class="screen" id="busy">
   <div class="progress">
-    <h2>AI 分析中</h2>
-    <div class="timer" id="timer">0 秒</div>
+    <h2 data-i18n="busy"></h2>
+    <div class="timer" id="timer"></div>
     <div class="thumbs" id="thumbs"></div>
     <ul class="log" id="log"></ul>
     <div class="err" id="err"></div>
-    <div class="nav" id="errNav" hidden><button id="retry">回首頁</button></div>
+    <div class="nav" id="errNav" hidden><button id="retry" data-i18n="home"></button></div>
   </div>
 </section>
 
 <!-- 3. 組裝動畫 -->
 <section class="screen" id="play">
-  <div class="topbar"><b>WORLD OVERLAY</b><span style="display:flex;gap:6px"><button id="btn3d" hidden>🧊 3D</button><button id="seekBtn">📷 對準零件</button><button id="again">重新開始</button></span></div>
+  <div class="topbar"><b>WORLD OVERLAY</b><span style="display:flex;gap:6px"><button id="btn3d" hidden>🧊 3D</button><button id="seekBtn" data-i18n="seekBtn"></button><button id="again" data-i18n="again"></button></span></div>
   <div class="goal" id="goal"></div>
-  <div class="stage-wrap"><div id="stage"></div><div id="view3d" hidden></div><div class="gen-tip" id="genTip" hidden>AI 正在畫這一步裝好的樣子…</div></div>
+  <div class="stage-wrap"><div id="stage"></div><div id="view3d" hidden></div><div class="gen-tip" id="genTip" hidden data-i18n="genTip"></div></div>
   <div class="card">
     <div class="count" id="count"></div>
     <div class="pair"><span class="chip a" id="pa"></span><span>→</span><span class="chip b" id="pb"></span></div>
     <p class="inst" id="inst"></p>
-    <details><summary>AI 為什麼這樣判斷<span class="conf" id="conf"></span></summary><p id="why"></p></details>
-    <div class="done" id="done">全部步驟完成 🎉</div>
-    <div class="nav"><button id="prev">上一步</button><button class="small" id="replay">↻</button><button class="primary" id="next">下一步</button></div>
+    <details><summary><span data-i18n="whyLabel"></span><span class="conf" id="conf"></span></summary><p id="why"></p></details>
+    <div class="done" id="done" data-i18n="allDone"></div>
+    <div class="nav"><button id="prev" data-i18n="prev"></button><button class="small" id="replay">↻</button><button class="primary" id="next" data-i18n="next"></button></div>
   </div>
 </section>
 
@@ -164,10 +169,11 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 <section class="screen" id="seek">
   <video id="seekView" autoplay muted playsinline></video>
   <div class="reticle" id="reticle"></div>
-  <div class="seek-top"><button id="seekBack">← 回動畫</button><span id="seekMs"></span></div>
-  <div class="seek-card" id="seekCard">把零件放進框裡</div>
+  <div class="seek-top"><button id="seekBack" data-i18n="seekBack"></button><span id="seekMs"></span></div>
+  <div class="seek-card" id="seekCard" data-i18n="seekInit"></div>
 </section>
 
+<script src="/static/i18n.js"></script>
 <script src="/static/assemble.js"></script>
 <script src="/static/models3d.js"></script>
 <script>
@@ -191,9 +197,9 @@ function passcodeHeaders() {
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, {...opts, headers: {...(opts.headers || {}), ...passcodeHeaders()}});
+  const res = await fetch(path, {...opts, headers: {...(opts.headers || {}), ...passcodeHeaders(), "X-Lang": LANG}});
   if (res.status === 401) {
-    const code = prompt("請輸入通行碼");
+    const code = prompt(t("passcode"));
     if (code) { try { localStorage.setItem("passcode", code); } catch (e) {} return api(path, opts); }
   }
   const data = await res.json();
@@ -220,7 +226,7 @@ async function videoThumb(file, maxSec, tooLong, at = 0.5) {
   v.muted = true; v.playsInline = true; v.preload = "auto";
   v.src = URL.createObjectURL(file);
   try {
-    await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = () => bad(new Error("這個影片格式讀不了")); });
+    await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = () => bad(new Error(t("badVideo"))); });
     if (v.duration > maxSec) throw new Error(tooLong);
     v.currentTime = Math.min(at, v.duration / 2);
     await new Promise(ok => v.onseeked = ok);
@@ -233,8 +239,8 @@ async function videoThumb(file, maxSec, tooLong, at = 0.5) {
 
 // 影片原檔上傳（後端用 ffmpeg 轉檔）
 async function videoToPart(file) {
-  if (file.size > VIDEO_MAX_MB * 1024 * 1024) throw new Error(`影片太大（上限 ${VIDEO_MAX_MB} MB），請錄短一點或調低解析度`);
-  const {thumb} = await videoThumb(file, VIDEO_MAX_SEC, `影片太長（上限 ${VIDEO_MAX_SEC} 秒），轉一圈 3–8 秒就夠`);
+  if (file.size > VIDEO_MAX_MB * 1024 * 1024) throw new Error(t("clipTooBig", VIDEO_MAX_MB));
+  const {thumb} = await videoThumb(file, VIDEO_MAX_SEC, t("clipTooLong", VIDEO_MAX_SEC));
   const data = await new Promise((ok, bad) => {
     const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => bad(r.error); r.readAsDataURL(file);
   });
@@ -250,10 +256,10 @@ const parts = [];  // {data: 上傳用的 data URL, thumb: 縮圖, video: 是不
 function renderTiles() {
   const mt = $("manualTile");
   mt.classList.toggle("filled", !!manual);
-  mt.innerHTML = manual ? "" : "<b>📖</b>拍說明書";
+  mt.innerHTML = manual ? "" : t("manualTile");
   if (manual) {
     const im = document.createElement("img"); im.src = manual;
-    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", "移除說明書");
+    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", t("removeManual"));
     x.onclick = e => { e.preventDefault(); manual = null; renderTiles(); };
     mt.append(im, x);
   }
@@ -262,9 +268,9 @@ function renderTiles() {
   at.replaceChildren();
   if (all) {
     const im = document.createElement("img"); im.src = all.thumb;
-    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", "移除影片");
+    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", t("removeVideo"));
     x.onclick = e => { e.preventDefault(); all = null; renderTiles(); };
-    const v = Object.assign(document.createElement("span"), {className: "v", textContent: `🎬 ${Math.round(all.seconds)} 秒`});
+    const v = Object.assign(document.createElement("span"), {className: "v", textContent: t("videoSecs", Math.round(all.seconds))});
     at.append(im, v, x);
   }
   // 整段影片和一個一個拍二選一
@@ -273,21 +279,20 @@ function renderTiles() {
   const grid = $("partsGrid");
   grid.querySelectorAll(".tile.filled").forEach(t => t.remove());
   parts.forEach((p, n) => {
-    const t = document.createElement("div"); t.className = "tile filled";
+    const tile = document.createElement("div"); tile.className = "tile filled";
     const im = document.createElement("img"); im.src = p.thumb;
     const num = document.createElement("span"); num.className = "n"; num.textContent = n + 1;
-    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", `移除零件 ${n + 1}`);
+    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", t("removePart", n + 1));
     x.onclick = () => { parts.splice(n, 1); renderTiles(); };
-    t.append(im, num, x);
-    if (p.video) t.append(Object.assign(document.createElement("span"), {className: "v", textContent: "🎥 影片"}));
-    grid.insertBefore(t, $("addTile"));
+    tile.append(im, num, x);
+    if (p.video) tile.append(Object.assign(document.createElement("span"), {className: "v", textContent: t("videoTag")}));
+    grid.insertBefore(tile, $("addTile"));
   });
   $("addTile").hidden = $("vidTile").hidden = parts.length >= MAX_PARTS;
   grid.append($("addTile"), $("vidTile"));
   $("go").disabled = !all && parts.length < 2;
-  $("go").textContent = all ? `${manual ? "對照說明書" : "不看說明書"}，分析整段影片`
-    : parts.length < 2 ? "至少拍 2 個零件"
-    : `${manual ? "對照說明書" : "不看說明書"}，分析 ${parts.length} 個零件`;
+  const m = t(manual ? "goWithManual" : "goNoManual");
+  $("go").textContent = all ? t("goVideo", m) : parts.length < 2 ? t("goNeed2") : t("goParts", m, parts.length);
 }
 
 $("manualIn").onchange = async e => {
@@ -309,8 +314,8 @@ $("allIn").onchange = async e => {
   const f = e.target.files[0]; e.target.value = "";
   if (!f) return;
   try {
-    if (f.size > ALL_MAX_MB * 1024 * 1024) throw new Error(`影片太大（上限 ${ALL_MAX_MB} MB），請改用 1080p 或 720p 錄`);
-    const {thumb, seconds} = await videoThumb(f, ALL_MAX_SEC, `影片太長（上限 ${ALL_MAX_SEC} 秒）`, 2);
+    if (f.size > ALL_MAX_MB * 1024 * 1024) throw new Error(t("allTooBig", ALL_MAX_MB));
+    const {thumb, seconds} = await videoThumb(f, ALL_MAX_SEC, t("allTooLong", ALL_MAX_SEC), 2);
     all = {file: f, thumb, seconds}; renderTiles();
   } catch (err) { alert(err.message); }
 };
@@ -343,18 +348,17 @@ function closeRecorder() {
 
 $("recTile").onclick = async () => {
   if (!navigator.mediaDevices?.getUserMedia || recMime() === null)
-    return alert("這個瀏覽器不能在 App 裡錄影，請用「選手機裡的影片」");
+    return alert(t("noRecorder"));
   try {
     const stream = await navigator.mediaDevices.getUserMedia({audio: false,
       video: {facingMode: {ideal: "environment"}, width: {ideal: 1280}, height: {ideal: 720}}});
     rec = {stream};
     $("recView").srcObject = stream;
     $("recGo").classList.remove("on"); $("recTime").classList.remove("on");
-    $("recTime").textContent = `按紅色按鈕開始錄（最長 ${ALL_MAX_SEC} 秒）`;
+    $("recTime").textContent = t("recStart", ALL_MAX_SEC);
     show("rec");
   } catch (e) {
-    alert(`開不了相機：${e.message}
-要用 https 網址打開，並允許相機權限`);
+    alert(t("noCamera", e.message));
   }
 };
 
@@ -380,7 +384,7 @@ $("recGo").onclick = () => {
   $("recGo").classList.add("on"); $("recTime").classList.add("on");
   rec.tick = setInterval(() => {
     const s = (Date.now() - rec.t0) / 1000;
-    $("recTime").textContent = `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}　按白色按鈕停止`;
+    $("recTime").textContent = t("recStop", `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`);
     if (!rec.thumb && s > 1.5) rec.thumb = grabFrame();
     if (s >= ALL_MAX_SEC && mr.state === "recording") mr.stop();
   }, 250);
@@ -397,18 +401,18 @@ function uploadVideo(file, onProgress) {
     const x = new XMLHttpRequest();
     x.open("POST", "/api/video");
     x.setRequestHeader("Content-Type", file.type || "video/mp4");
-    for (const [k, v] of Object.entries(passcodeHeaders())) x.setRequestHeader(k, v);
+    for (const [k, v] of Object.entries({...passcodeHeaders(), "X-Lang": LANG})) x.setRequestHeader(k, v);
     x.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
     x.onload = () => {
       let d = {}; try { d = JSON.parse(x.responseText); } catch (e) {}
       if (x.status === 401) {
-        const code = prompt("請輸入通行碼");
+        const code = prompt(t("passcode"));
         if (code) { try { localStorage.setItem("passcode", code); } catch (e) {} return uploadVideo(file, onProgress).then(ok, bad); }
       }
-      if (x.status === 413) return bad(new Error("影片太大，網路通道上限約 100 MB，請錄短一點或改用 720p"));
-      x.status === 200 ? ok(d.video) : bad(new Error(d.error || `上傳失敗 HTTP ${x.status}`));
+      if (x.status === 413 || x.status === 524) return bad(new Error(t("tunnelLimit")));
+      x.status === 200 ? ok(d.video) : bad(new Error(d.error || t("uploadFailed", x.status)));
     };
-    x.onerror = () => bad(new Error("上傳中斷，請確認手機和電腦在同一個 Wi-Fi"));
+    x.onerror = () => bad(new Error(t("uploadDropped")));
     x.send(file);
   });
 }
@@ -422,7 +426,7 @@ function addLog(msg) {
 
 function fail(msg) {
   clearInterval(timerId); clearInterval(pollId);
-  $("err").textContent = `分析失敗：${msg}`;
+  $("err").textContent = t("failed", msg);
   $("errNav").hidden = false;
 }
 
@@ -432,19 +436,20 @@ async function analyze() {
   show("busy");
   const t0 = Date.now();
   clearInterval(timerId);
-  timerId = setInterval(() => $("timer").textContent = `${Math.round((Date.now() - t0) / 1000)} 秒`, 500);
+  $("timer").textContent = t("seconds", 0);
+  timerId = setInterval(() => $("timer").textContent = t("seconds", Math.round((Date.now() - t0) / 1000)), 500);
   try {
     let body;
     if (all) {
-      const mb = `上傳影片（${(all.file.size / 1024 / 1024).toFixed(0)} MB）`;
+      const mb = t("uploadVideo", (all.file.size / 1024 / 1024).toFixed(0));
       addLog(mb);
       const li = $("log").lastChild;
       await api("/api/ping");  // 先確認通行碼，免得大檔案傳完才被擋
       const video = await uploadVideo(all.file, f => li.textContent = `${mb} ${Math.round(f * 100)}%`);
-      body = {manual, video};
+      body = {manual, video, lang: LANG};
     } else {
-      addLog(`上傳${manual ? "說明書和" : ""}零件${parts.some(p => p.video) ? "照片和影片" : "照片"}`);
-      body = {manual, parts: parts.map(p => p.data)};
+      addLog(t("uploadPhotos", !!manual, parts.some(p => p.video)));
+      body = {manual, parts: parts.map(p => p.data), lang: LANG};
     }
     const {job} = await api("/api/assemble", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body)});
@@ -471,10 +476,10 @@ function poll(job) {
 }
 
 function play(result) {
-  if (!result.steps.length) return fail("AI 沒有找到可以組裝的步驟");
+  if (!result.steps.length) return fail(t("noSteps"));
   currentResult = result;
   clearInterval(timerId);
-  $("goal").textContent = `目標：${result.goal}`;
+  $("goal").textContent = t("goal", result.goal);
   show("play");
   stepNow = 0;
   player = startAssembly(result, i => { stepNow = i; models3d && models3d.step(); });
@@ -509,7 +514,7 @@ function partCard(name, tag, alts) {
   card.replaceChildren();
   const who = document.createElement("div"); who.className = "who";
   if (img) who.append(Object.assign(document.createElement("img"), {src: img}));
-  who.append(Object.assign(document.createElement("span"), {textContent: `這是「${name}」`}));
+  who.append(Object.assign(document.createElement("span"), {textContent: t("thisIs", name)}));
   if (tag) who.append(Object.assign(document.createElement("span"), {className: "tag" + (tag.ok ? " ok" : ""), textContent: tag.text}));
   card.append(who);
   let step = -1;
@@ -518,23 +523,23 @@ function partCard(name, tag, alts) {
     const to = document.createElement("div"); to.className = "to";
     const bImg = D.images[s.b_img];
     if (bImg) to.append(Object.assign(document.createElement("img"), {src: bImg}));
-    const t = document.createElement("div");
-    t.innerHTML = `<b>第 ${k + 1} 步：接到「<span class="chip b"></span>」</b><br><span class="i"></span>`;
-    t.querySelector(".chip").textContent = s.onto_step ? `第 ${s.onto_step} 步的組合件` : s.part_b;
-    t.querySelector(".i").textContent = s.instruction;
-    to.append(t);
-    if (s.result && D.images[s.result]) to.append(Object.assign(document.createElement("img"), {src: D.images[s.result], title: "裝好的樣子"}));
+    const d = document.createElement("div");
+    d.innerHTML = `<b>${t("stepOnto", k + 1)}</b><br><span class="i"></span>`;
+    d.querySelector(".chip").textContent = s.onto_step ? t("assemblyOf", s.onto_step) : s.part_b;
+    d.querySelector(".i").textContent = s.instruction;
+    to.append(d);
+    if (s.result && D.images[s.result]) to.append(Object.assign(document.createElement("img"), {src: D.images[s.result], title: t("doneLook")}));
     card.append(to);
   } else if (kb >= 0) {
     step = kb;
     card.append(Object.assign(document.createElement("div"), {className: "alt",
-      textContent: `第 ${kb + 1} 步會把「${D.steps[kb].part_a}」裝到它上面，先放著`}));
+      textContent: t("laterOnto", kb + 1, D.steps[kb].part_a)}));
   } else {
-    card.append(Object.assign(document.createElement("div"), {className: "alt", textContent: "這次的步驟裡用不到這個零件"}));
+    card.append(Object.assign(document.createElement("div"), {className: "alt", textContent: t("unused")}));
   }
-  if (alts && alts.length) card.append(Object.assign(document.createElement("div"), {className: "alt", textContent: `也可能是：${alts.join("、")}`}));
+  if (alts && alts.length) card.append(Object.assign(document.createElement("div"), {className: "alt", textContent: t("maybe", alts)}));
   if (step >= 0) {
-    const b = Object.assign(document.createElement("button"), {className: "go primary", textContent: `看第 ${step + 1} 步的動畫`});
+    const b = Object.assign(document.createElement("button"), {className: "go primary", textContent: t("watchStep", step + 1)});
     b.onclick = () => { stopSeek(); show("play"); player.goto(step); };
     card.append(b);
   }
@@ -552,50 +557,50 @@ async function confirmPart(image, cands) {
 
 async function seekLoop() {
   while (seek && seek.on) {
-    const t = Date.now(), image = grabCenter();
+    const t0 = Date.now(), image = grabCenter();
     if (!image) { await sleep(200); continue; }
     let r;
     try {
       r = await api("/api/identify", {method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({job: currentJob, image})});
     } catch (e) {
-      $("seekCard").textContent = `辨識失敗：${e.message}`;
+      $("seekCard").textContent = t("identifyFailed", e.message);
       await sleep(1500); continue;
     }
     if (!seek || !seek.on) break;
     $("seekMs").textContent = `${r.ms} ms`;
-    const names = r.top.map(t => t[0]), top = names[0];
+    const names = r.top.map(m => m[0]), top = names[0];
     seek.recent = [...seek.recent.slice(-1), top];
     const stable = seek.recent.length === 2 && seek.recent[0] === seek.recent[1];
     const c = seek.confirmed;
     $("reticle").classList.toggle("sure", stable && r.sure);
     if (c && Date.now() - c.at < 6000 && names.includes(c.name) && !(r.sure && top !== c.name)) {
-      partCard(c.name, {text: "Spark 確認", ok: true});
+      partCard(c.name, {text: t("sparkSure"), ok: true});
     } else if (stable && r.sure) {
-      partCard(top, {text: "確定", ok: true});
+      partCard(top, {text: t("sure"), ok: true});
     } else if (stable) {
-      partCard(top, {text: "確認中…"}, names.slice(1, 3));
+      partCard(top, {text: t("checking")}, names.slice(1, 3));
       confirmPart(image, names);
     }
-    await sleep(Math.max(0, 300 - (Date.now() - t)));
+    await sleep(Math.max(0, 300 - (Date.now() - t0)));
   }
 }
 
 async function startSeek() {
   if (!currentJob || !currentResult) return;
-  if (!navigator.mediaDevices?.getUserMedia) return alert("這個瀏覽器不能開相機（要用 https 網址）");
+  if (!navigator.mediaDevices?.getUserMedia) return alert(t("noCameraHttps"));
   try {
     const stream = await navigator.mediaDevices.getUserMedia({audio: false,
       video: {facingMode: {ideal: "environment"}, width: {ideal: 1280}, height: {ideal: 720}}});
     player && player.stop();
     seek = {stream, on: true, recent: [], confirmed: null, confirming: false};
     $("seekView").srcObject = stream;
-    $("seekCard").textContent = "把零件放進框裡（第一次要準備零件特徵，約 10 秒）";
+    $("seekCard").textContent = t("seekFirst");
     $("reticle").classList.remove("sure");
     show("seek");
     seekLoop();
   } catch (e) {
-    alert(`開不了相機：${e.message}\n要用 https 網址打開，並允許相機權限`);
+    alert(t("noCamera", e.message));
   }
 }
 
@@ -612,8 +617,8 @@ $("seekBack").onclick = () => { stopSeek(); show("play"); player && player.goto(
 
 $("go").onclick = analyze;
 $("sample").onclick = async () => {
-  try { const {result} = await api("/api/parts_sample"); player = null; currentJob = "sample"; play(result); }
-  catch (e) { alert(`範例載入失敗：${e.message}`); }
+  try { const {result, job} = await api(`/api/parts_sample?lang=${LANG}`); player = null; currentJob = job; play(result); }
+  catch (e) { alert(t("sampleFailed", e.message)); }
 };
 $("again").onclick = $("retry").onclick = () => {
   clearInterval(pollId); clearInterval(timerId); stopSeek();
@@ -621,6 +626,9 @@ $("again").onclick = $("retry").onclick = () => {
   models3d && models3d.stop(); models3d = null;
   show("home");
 };
+// 換語言：只有首頁能換（分析結果是用當時的語言寫的）
+document.querySelectorAll("[data-lang]").forEach(b => b.onclick = () => { setLang(b.dataset.lang); renderTiles(); });
+applyI18n();
 renderTiles();
 </script>
 </body></html>

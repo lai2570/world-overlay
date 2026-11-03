@@ -4,11 +4,11 @@
 //                       a_img, a_pt, b_img, b_pt, result}], images: {key: data URL}, pending,
 //        spins: {零件名稱: [轉一圈的去背圖 data URL...]}}（零件是用影片拍的才有 spins）
 //   a_pt / b_pt 是接口在圖片裡的相對位置（0–1），可能是 null（AI 沒找到，改用圖片中心）。
-// 頁面上需要這些 id：stage count pa pb inst why conf prev next replay done genTip
+// 頁面上需要這些 id：stage count pa pb inst why conf prev next replay done genTip；文字用 i18n.js 的 t()
 function startAssembly(D, onStep) {
   const $ = id => document.getElementById(id);
   const stage = $("stage");
-  const CONF = {high: "把握高", medium: "把握中", low: "把握低"};
+  const CONF = t("conf");  // i18n.js
   const T = {look: 900, spin: 1800, fly: 1500, fade: 700, hold: 1800};  // 各段時間（毫秒）；spin：零件是影片拍的就先轉一圈
   const LEFT = 0.36;  // 左邊放零件 A 的區域寬度比例；B 和結果圖放右邊
   let i = 0, raf = 0, t0 = 0, els = null;
@@ -122,14 +122,14 @@ function startAssembly(D, onStep) {
   function draw() {
     const s = D.steps[i];
     stage.dataset.step = String(i);
-    $("count").textContent = `步驟 ${i + 1} / ${D.steps.length}`;
+    $("count").textContent = t("step", i + 1, D.steps.length);
     $("pa").textContent = s.part_a;
-    $("pb").textContent = s.onto_step ? `組合件（${s.part_b}）` : s.part_b;
+    $("pb").textContent = s.onto_step ? t("ontoAssembly", s.part_b) : s.part_b;
     $("inst").textContent = s.instruction;
     $("why").textContent = s.why;
     $("conf").textContent = CONF[s.confidence] || "";
     $("prev").disabled = i === 0;
-    $("next").textContent = i === D.steps.length - 1 ? "完成" : "下一步";
+    $("next").textContent = t(i === D.steps.length - 1 ? "finish" : "next");
     $("done").style.display = "none";
     const waiting = !s.result && D.pending > 0;
     $("genTip").hidden = !waiting;

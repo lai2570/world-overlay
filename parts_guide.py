@@ -117,8 +117,10 @@ PLAN_PROMPT = (
     "(onto_step = 0, part_b = that part) or onto the assembly finished in an earlier step (onto_step = that step "
     "number, part_b = the part of that assembly that part_a connects to). Every part should be used. "
     "Base your reasoning on visible features such as threads, sockets, clamps and sizes. "
-    "Answer in Traditional Chinese."
+    "Name parts in plain words a person would say (e.g. \"shock mount\"), not identifiers like \"shock_mount\". "
+    "Answer in {language}."
 )
+LANGUAGES = {"zh": "Traditional Chinese", "en": "English"}  # 手機選的語言：步驟、名稱都用這個語言寫
 
 
 def spark_json(key: str, content: list, schema: dict, name: str, effort: str | None = None) -> dict:
@@ -147,9 +149,9 @@ def image_part(img) -> dict:
     return {"type": "image_url", "image_url": {"url": to_data_url(img)}}
 
 
-def plan(key: str, photos: list, manual=None) -> dict:
+def plan(key: str, photos: list, manual=None, lang: str = "zh") -> dict:
     note = "; the first image is the instruction manual, the part photos follow it" if manual else ""
-    content = [{"type": "text", "text": PLAN_PROMPT.format(n=len(photos), manual_note=note)}]
+    content = [{"type": "text", "text": PLAN_PROMPT.format(n=len(photos), manual_note=note, language=LANGUAGES[lang])}]
     if manual:
         content.append(image_part(manual))
     # 一次請求最多 5 段影片。從同一段錄全部零件的影片切出來的：送整段一次 + 每個零件的時間段和最清楚那一格；
@@ -486,13 +488,19 @@ def data_url(img: Image.Image, fmt: str) -> str:
     return f"data:image/{fmt};base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dict:
-    """publish(result) 在有新進度時呼叫：去背完就先給步驟和零件圖，之後每生成一步就補上那一步的結果圖。"""
+def analyze(key: str, photos: list, manual=None, log=print, publish=None, lang: str = "zh") -> dict:
+    """publish(result) 在有新進度時呼叫：去背完就先給步驟和零件圖，之後每生成一步就補上那一步的結果圖。
+    lang："zh" 或 "en"，AI 寫的步驟和進度訊息用這個語言。"""
+    def t(zh: str, en: str) -> str:
+        return en if lang == "en" else zh
+
     t0 = time.perf_counter()
-    log("對照說明書推理組裝步驟" if manual else "推理組裝步驟")
-    p = plan(key, photos, manual)
+    log(t("對照說明書推理組裝步驟", "Working out the steps from the manual") if manual else t("推理組裝步驟", "Working out the assembly steps"))
+    p = plan(key, photos, manual, lang)
     steps, looks = p["steps"], {q["name"]: q["look"] for q in p["parts"]}
-    log(f"推理完成：{len(p['parts'])} 個零件、{len(steps)} 個步驟（{time.perf_counter() - t0:.0f} 秒）")
+    dt = time.perf_counter() - t0
+    log(t(f"推理完成：{len(p['parts'])} 個零件、{len(steps)} 個步驟（{dt:.0f} 秒）",
+          f"Planned: {len(p['parts'])} parts, {len(steps)} steps ({dt:.0f} s)"))
 
     # 每個零件要找哪些接口：A 端都在 A 的照片上；B 端只有裝到單一零件時在 B 的照片上
     wanted: dict[str, list[str]] = {q["name"]: [] for q in p["parts"]}
@@ -503,17 +511,18 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
     by_name = {q["name"]: q for q in p["parts"]}
 
     t1 = time.perf_counter()
-    log("剪下每個零件、找接口")
+    log(t("剪下每個零件、找接口", "Cutting out each part and finding the joints"))
     with ThreadPoolExecutor(8) as ex:
         futs = {n: ex.submit(prepare_part, key, photos[by_name[n]["photo"] - 1], by_name[n], pts)
                 for n, pts in wanted.items() if n in by_name and 1 <= by_name[n]["photo"] <= len(photos)}
         parts = {n: f.result() for n, f in futs.items()}
-    log(f"去背完成：{len(parts)} 個（{time.perf_counter() - t1:.0f} 秒）")
+    dt = time.perf_counter() - t1
+    log(t(f"去背完成：{len(parts)} 個（{dt:.0f} 秒）", f"Cut out {len(parts)} parts ({dt:.0f} s)"))
 
     out_steps = []
     for k, s in enumerate(steps, 1):
         onto = 0 < s["onto_step"] < k
-        why = f"〔說明書{s['manual_step']}〕{s['why']}" if s.get("manual_step") else s["why"]
+        why = t(f"〔說明書{s['manual_step']}〕", f"[Manual {s['manual_step']}] ") + s["why"] if s.get("manual_step") else s["why"]
         out_steps.append({
             "part_a": s["part_a"], "part_b": s["part_b"], "instruction": s["instruction"], "why": why,
             "confidence": s["confidence"], "a_scale": s["a_scale"], "onto_step": s["onto_step"] if onto else 0,
@@ -532,7 +541,7 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
 
     # 依相依順序生成：裝到組合件上的步驟要等那一步生成完；彼此獨立的分支同時跑
     t2 = time.perf_counter()
-    log(f"Muse Image 依序生成 {len(steps)} 張組裝結果")
+    log(t(f"Muse Image 依序生成 {len(steps)} 張組裝結果", f"Muse Image is drawing {len(steps)} assembled results"))
     lock = threading.Lock()
     futures: dict[int, object] = {}
     finished = [0]
@@ -541,25 +550,25 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
         s, o = steps[k - 1], out_steps[k - 1]
         try:
             if s["part_a"] not in parts:
-                raise RuntimeError(f"沒有 {s['part_a']} 的照片")
+                raise RuntimeError(t(f"沒有 {s['part_a']} 的照片", f"no photo of {s['part_a']}"))
             a_cut, a_views = parts[s["part_a"]]["image"], parts[s["part_a"]]["views"]
             if o["onto_step"]:
                 base = futures[o["onto_step"]].result()
                 if base is None:
-                    raise RuntimeError(f"第 {o['onto_step']} 步沒有結果圖")
+                    raise RuntimeError(t(f"第 {o['onto_step']} 步沒有結果圖", f"step {o['onto_step']} has no result image"))
                 # 同時做：在組合件照片上找 B 的接口、生成這一步
                 with ThreadPoolExecutor(1) as ex:
-                    pt = ex.submit(ground, key, base, [f"{s['part_b']}上的{s['b_where']}"])
+                    pt = ex.submit(ground, key, base, [t(f"{s['part_b']}上的{s['b_where']}", f"the {s['b_where']} on the {s['part_b']}")])
                     img = render_step(key, s, looks, a_cut, base, True, a_views)
                     obj = pt.result()[0]
                 if obj["found"] and len(obj["point"]) == 2:
                     o["b_pt"] = [obj["point"][0] / 1000, obj["point"][1] / 1000]
             else:
                 if s["part_b"] not in parts:
-                    raise RuntimeError(f"沒有 {s['part_b']} 的照片")
+                    raise RuntimeError(t(f"沒有 {s['part_b']} 的照片", f"no photo of {s['part_b']}"))
                 img = render_step(key, s, looks, a_cut, parts[s["part_b"]]["image"], False, a_views)
         except Exception as e:  # 這一步沒有結果圖：動畫只播零件飛過去，不淡入結果
-            log(f"步驟 {k} 生成失敗：{e}")
+            log(t(f"步驟 {k} 生成失敗：{e}", f"Step {k} could not be drawn: {e}"))
             img = None
         with lock:
             finished[0] += 1
@@ -567,7 +576,9 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
                 result["images"][f"result{k}"] = data_url(img, "jpeg")
                 o["result"] = f"result{k}"
             result["pending"] -= 1
-            log(f"步驟 {k} 生成完成（{finished[0]}/{len(steps)}，{time.perf_counter() - t2:.0f} 秒）")
+            dt = time.perf_counter() - t2
+            log(t(f"步驟 {k} 生成完成（{finished[0]}/{len(steps)}，{dt:.0f} 秒）",
+                  f"Step {k} drawn ({finished[0]}/{len(steps)}, {dt:.0f} s)"))
             if publish:
                 publish(result)
         return img
@@ -577,7 +588,8 @@ def analyze(key: str, photos: list, manual=None, log=print, publish=None) -> dic
             futures[k] = ex.submit(run, k)
         for f in list(futures.values()):
             f.result()
-    log(f"全部完成（{time.perf_counter() - t0:.0f} 秒）")
+    dt = time.perf_counter() - t0
+    log(t(f"全部完成（{dt:.0f} 秒）", f"All done ({dt:.0f} s)"))
     return result
 
 

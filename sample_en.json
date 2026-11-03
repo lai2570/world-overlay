@@ -1,0 +1,33 @@
+{
+ "goal": "A condenser microphone set mounted on a desk boom arm, with a shock mount and a foam windscreen.",
+ "names": {
+  "金屬懸臂": "Boom arm",
+  "桌夾": "Desk clamp",
+  "塑膠轉接頭": "Plastic adapter",
+  "防震架": "Shock mount",
+  "麥克風": "Microphone",
+  "防噴綿": "Foam windscreen"
+ },
+ "steps": [
+  {
+   "instruction": "Screw the bottom of the boom arm into the hole on top of the desk clamp and tighten it.",
+   "why": "The desk clamp has a vertical mounting hole and a locking knob, and the arm ends in a threaded post of matching size, so this is where the arm fixes to the desk."
+  },
+  {
+   "instruction": "Slide the plastic adapter onto the front end of the arm and screw it tight.",
+   "why": "The front of the arm has a short threaded tip and the plastic part has a round sleeve that fits over it; it adapts the arm to the shock mount."
+  },
+  {
+   "instruction": "Screw the base of the shock mount onto the top of the plastic adapter.",
+   "why": "The shock mount base has a threaded socket and a side knob that lock onto the adapter, giving an angle-adjustable support."
+  },
+  {
+   "instruction": "Insert the microphone from above into the center ring of the shock mount and clamp it.",
+   "why": "The center ring of the shock mount has elastic bands and the same diameter as the microphone body; it holds the mic suspended to stop vibration."
+  },
+  {
+   "instruction": "Pull the foam windscreen over the mesh grille at the top of the microphone.",
+   "why": "The black foam cover is slightly larger than the grille so it fits snugly to block plosives; the photo shows the two side by side."
+  }
+ ]
+}
