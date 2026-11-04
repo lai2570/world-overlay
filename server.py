@@ -206,6 +206,8 @@ def run_assemble(job_id: str, photos: list[tuple[bytes, bool]], manual: list[byt
 
 
 CONFIRM_GAP = 2.0  # 每人兩次 Spark 確認之間至少隔幾秒
+GUEST_CONFIRMS = 200  # 範例的即時辨識不用通行碼；沒通行碼的人合計每天最多幾次 Spark 確認（每次約 US$0.002）
+guest_confirms: dict[str, int] = {}  # 日期 → 今天沒通行碼的人用了幾次
 indexes: dict[str, identify.PartIndex] = {}
 index_lock = threading.Lock()
 infer_lock = threading.Lock()  # CPU 一次算一張就好，同時算反而每張都變慢
@@ -437,7 +439,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path not in ("/api/analyze", "/api/track", "/api/assemble", "/api/video", "/api/identify", "/api/confirm"):
             return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-        if not self.authorized():
+        self.user = None
+        if path not in ("/api/identify", "/api/confirm") and not self.authorized():  # 即時辨識看 job：範例不用通行碼
             return
         length = int(self.headers.get("Content-Length") or 0)
         if path == "/api/video":
@@ -523,6 +526,9 @@ class Handler(BaseHTTPRequestHandler):
             frame = load_image(io.BytesIO(decode_data_url(req["image"])), 640)
         except (ValueError, KeyError, IndexError, TypeError, AttributeError, OSError):
             return self.send_json({"error": self.t("上傳格式不對", "Bad upload format")}, HTTPStatus.BAD_REQUEST)
+        guest = job in SAMPLES
+        if not guest and not self.authorized():
+            return
         if not confirm:
             idx = part_index(job)
             if idx is None:
@@ -536,18 +542,25 @@ class Handler(BaseHTTPRequestHandler):
         result = job_result(job)
         if result is None:
             return self.send_json({"error": self.t("找不到這次分析的結果", "Result not found")}, HTTPStatus.NOT_FOUND)
-        who = self.user or "local"
+        who = "guest" if guest else self.user or "local"  # 沒通行碼的人共用一個間隔
         now = time.time()
         with jobs_lock:
             if now - last_confirm.get(who, 0) < CONFIRM_GAP:
                 return self.send_json({"error": self.t("太頻繁", "Too many requests")}, HTTPStatus.TOO_MANY_REQUESTS)
+            if guest:
+                today = time.strftime("%Y-%m-%d")
+                if guest_confirms.get(today, 0) >= GUEST_CONFIRMS:
+                    return self.send_json({"error": self.t("今天範例的 AI 確認次數用完了", "The example's AI checks are used up for today")},
+                                          HTTPStatus.TOO_MANY_REQUESTS)
+                guest_confirms[today] = guest_confirms.get(today, 0) + 1
             last_confirm[who] = now
         looks = result.get("looks") or {}
         names = [k[5:] for k in result["images"] if k.startswith("part:")]
         listing = "\n".join(f"- {n}" + (f"（{looks[n]}）" if looks.get(n) else "") for n in names)
         hint = "、".join(str(n) for n in req.get("candidates") or [])
         prompt = ("這是使用者手機鏡頭的畫面，正對著一個準備組裝的零件。從下面的零件清單裡判斷畫面中間那個是哪一個。"
-                  + (f"影像比對覺得可能是：{hint}。" if hint else "") + "\n零件清單：\n" + listing)
+                  + (f"影像比對覺得可能是：{hint}。" if hint else "") + "\n零件清單：\n" + listing
+                  + ("\nWrite the reason in English." if self.lang == "en" else ""))
         try:
             out = parts_guide.spark_json(self.server.api_key, [{"type": "text", "text": prompt},
                                                                parts_guide.image_part(frame)],
