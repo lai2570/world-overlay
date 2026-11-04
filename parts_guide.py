@@ -89,8 +89,8 @@ PLAN_SCHEMA = {
         "steps": {"type": "array", "items": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["part_a", "a_where", "onto_step", "part_b", "b_where", "instruction", "why", "confidence",
-                         "a_scale", "manual_step"],
+            "required": ["part_a", "a_where", "onto_step", "part_b", "b_where", "pose", "instruction", "why",
+                         "confidence", "a_scale", "manual_step"],
             "properties": {
                 "part_a": {"type": "string", "description": "這一步拿起來的零件（parts 裡的 name）"},
                 "a_where": {"type": "string", "description": "part_a 上要接的部位"},
@@ -99,7 +99,9 @@ PLAN_SCHEMA = {
                 "part_b": {"type": "string",
                            "description": "onto_step 為 0 時是要裝上去的零件（parts 裡的 name）；否則是組合件上被接的那個零件"},
                 "b_where": {"type": "string", "description": "part_b 上對應的接口"},
-                "instruction": {"type": "string", "description": "一句話動作指示"},
+                "pose": {"type": "string", "description": "裝好後 part_a 怎麼擺：哪一頭接上去、另一頭朝哪裡、張開還是收起、"
+                                                       "正反（英文，生成組裝圖用）"},
+                "instruction": {"type": "string", "description": "一句話動作指示；方向會影響結果時要講（哪一頭、朝哪裡）"},
                 "why": {"type": "string", "description": "從照片（和說明書）看到什麼特徵推斷的"},
                 "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                 "a_scale": {"type": "number",
@@ -117,10 +119,15 @@ PLAN_PROMPT = (
     "appears in. Then give the mounting steps in order. Each step attaches part_a either onto a single part "
     "(onto_step = 0, part_b = that part) or onto the assembly finished in an earlier step (onto_step = that step "
     "number, part_b = the part of that assembly that part_a connects to). Use every part that belongs to the build, "
-    "but do not force a part onto it: leave out parts that are an alternative to another part (e.g. a second stand "
-    "or holder used instead of the main one), spares, and loose accessories such as cables or adapters that only "
-    "plug into something else and are not part of the build. A cable plugged into the build itself (e.g. into the "
-    "bottom of a microphone) is a step. "
+    "but do not force a part onto it. Parts that make up a second, alternative setup (e.g. a small tripod with its "
+    "own holder, which the main item can be moved onto instead of the main stand) are never attached to the main "
+    "build: after the main build, add separate steps that put that setup together on its own (its first step has "
+    "onto_step = 0), and say in their instruction that it is an alternative setup. Leave out spares and loose "
+    "accessories such as cables or adapters that only plug into something else. A cable plugged into the build "
+    "itself (e.g. into the bottom of a microphone) is a step. "
+    "Orientation matters: for each step give the pose (which end of part_a attaches, where its other end points, "
+    "whether it is opened or folded, which side faces up or forward), the way it is used in the finished product, "
+    "and put it in the instruction when it changes how the user attaches the part. "
     "Base your reasoning on visible features such as threads, sockets, clamps and sizes.{reference_note} "
     "Name parts in plain words a person would say (e.g. \"shock mount\"), not identifiers like \"shock_mount\". "
     "Answer in {language}."
@@ -491,14 +498,14 @@ def render_step(key: str, s: dict, looks: dict, a_cut, b_img, onto: bool, a_view
     if onto:
         prompt = (f"Image 1 is a partly built assembly. Image 2 is a real part: {a_desc}.\n"
                   f"Attach the part from image 2 to the assembly: {s['instruction']} "
-                  f"(its {s['a_where']} goes onto the {s['part_b']}'s {s['b_where']}).\n"
+                  f"(its {s['a_where']} goes onto the {s['part_b']}'s {s['b_where']}; pose: {s.get('pose', '')}).\n"
                   "Keep the assembly exactly as in image 1: same pose, framing, scale, lighting and plain background. "
                   "Only add the new part, with the same shape, colors and details as in image 2.")
     else:
         prompt = (f"Image 1 is a real part: {s['part_b']} ({looks.get(s['part_b'], '')}). "
                   f"Image 2 is a real part: {a_desc}.\n"
                   f"Show them assembled: {s['instruction']} "
-                  f"(the {s['a_where']} of image 2 goes onto the {s['b_where']} of image 1).\n"
+                  f"(the {s['a_where']} of image 2 goes onto the {s['b_where']} of image 1; pose: {s.get('pose', '')}).\n"
                   "Use exactly these parts with the same shapes, colors and details; do not add anything else. "
                   "Product photo on a plain light background, the whole assembly visible, the connection clearly shown.")
     return edit_image(key, [b_img, a_cut, *a_views], prompt + extra)
@@ -515,15 +522,15 @@ def data_url(img: Image.Image, fmt: str) -> str:
     return f"data:image/{fmt};base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def analyze(key: str, photos: list, manual=None, log=print, publish=None, lang: str = "zh") -> dict:
+def analyze(key: str, photos: list, manual=None, log=print, publish=None, lang: str = "zh", ref: dict | None = None) -> dict:
     """publish(result) 在有新進度時呼叫：去背完就先給步驟和零件圖，之後每生成一步就補上那一步的結果圖。
-    lang："zh" 或 "en"，AI 寫的步驟和進度訊息用這個語言。"""
+    lang："zh" 或 "en"，AI 寫的步驟和進度訊息用這個語言。ref：reference.find 的結果（可省略）。"""
     def t(zh: str, en: str) -> str:
         return en if lang == "en" else zh
 
     t0 = time.perf_counter()
     log(t("對照說明書推理組裝步驟", "Working out the steps from the manual") if manual else t("推理組裝步驟", "Working out the assembly steps"))
-    p = plan(key, photos, manual, lang)
+    p = plan(key, photos, manual, lang, ref)
     steps, looks = p["steps"], {q["name"]: q["look"] for q in p["parts"]}
     dt = time.perf_counter() - t0
     log(t(f"推理完成：{len(p['parts'])} 個零件、{len(steps)} 個步驟（{dt:.0f} 秒）",

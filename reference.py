@@ -51,8 +51,10 @@ SEARCH_PROMPT = (
     "can (brand, model, kit name; it may be a white-label version of a common product). Then use web search to find "
     "its instruction manual or product pages (or those of the same kind of kit) and read how it is assembled. "
     "Return the product name; in assembly, how the finished product fits together according to those sources: "
-    "which part attaches to which and how (screwed on, clamped, slid in, plugged in), and which parts are "
-    "alternatives or accessories not attached to the main build; and any direct image URLs (.jpg/.png/.webp) of "
+    "which part attaches to which and how (screwed on, clamped, slid in, plugged in), how each part is oriented "
+    "(which end attaches, where the other end points, opened or folded, which way it faces), which parts form an "
+    "alternative setup of their own (e.g. a small tripod the main item can be moved onto) and what goes into it, "
+    "and which are loose accessories; and any direct image URLs (.jpg/.png/.webp) of "
     "the fully assembled product you saw. If you cannot tell what the product is, return empty strings and an "
     "empty list."
 )
