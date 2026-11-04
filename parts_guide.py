@@ -42,6 +42,7 @@ RESULT_MAX = 900      # 生成的組裝結果最長邊
 BOX_PAD = 0.04        # Spark 框往外擴一點再給 SAM
 CROP_PAD = 0.2        # 只把框附近裁下來給 SAM（框再往外 20%）
 SAM_MAX = 800         # 給 SAM 的裁切圖最長邊：SAM 一次呼叫的時間主要是上傳，1280 約 3–4 秒、640 約 1.5 秒
+PLAN_EFFORT = "high"  # 排步驟是最難的一步，多想一點
 GROUND_EFFORT = "low"  # 找零件框和接口：low 約 6 秒、預設約 9 秒，位置差不多
 SPIN_FRAMES = 12      # 零件影片轉一圈的動畫取幾格
 SPIN_MAX = 360
@@ -115,8 +116,12 @@ PLAN_PROMPT = (
     "a photo; look at every side in them, since threads and sockets are often on the back. Work out how to physically assemble them. List every part with the photo it "
     "appears in. Then give the mounting steps in order. Each step attaches part_a either onto a single part "
     "(onto_step = 0, part_b = that part) or onto the assembly finished in an earlier step (onto_step = that step "
-    "number, part_b = the part of that assembly that part_a connects to). Every part should be used. "
-    "Base your reasoning on visible features such as threads, sockets, clamps and sizes. "
+    "number, part_b = the part of that assembly that part_a connects to). Use every part that belongs to the build, "
+    "but do not force a part onto it: leave out parts that are an alternative to another part (e.g. a second stand "
+    "or holder used instead of the main one), spares, and loose accessories such as cables or adapters that only "
+    "plug into something else and are not part of the build. A cable plugged into the build itself (e.g. into the "
+    "bottom of a microphone) is a step. "
+    "Base your reasoning on visible features such as threads, sockets, clamps and sizes.{reference_note} "
     "Name parts in plain words a person would say (e.g. \"shock mount\"), not identifiers like \"shock_mount\". "
     "Answer in {language}."
 )
@@ -149,15 +154,33 @@ def image_part(img) -> dict:
     return {"type": "image_url", "image_url": {"url": to_data_url(img)}}
 
 
-def plan(key: str, photos: list, manual=None, lang: str = "zh") -> dict:
-    """manual：說明書一張圖，或每一頁一張圖的 list（照片或 PDF 頁），可省略。"""
+def plan(key: str, photos: list, manual=None, lang: str = "zh", ref: dict | None = None) -> dict:
+    """manual：說明書一張圖，或每一頁一張圖的 list（照片或 PDF 頁），可省略。
+    ref：reference.find 的結果（產品名稱、網路上查到的組裝方式、完成品參考照），可省略。"""
     pages = manual if isinstance(manual, list) else [manual] if manual else []
+    ref = ref or {}
     note = (f"; first come the {len(pages)} page(s) of the instruction manual in order, then the part photos"
             if pages else "")
-    content = [{"type": "text", "text": PLAN_PROMPT.format(n=len(photos), manual_note=note, language=LANGUAGES[lang])}]
+    ref_note = ""
+    if ref.get("product") or ref.get("assembly") or ref.get("images"):
+        ref_note = (" Notes on what the product is and how it is assembled (looked up online), and photos of it "
+                    "finished, come before the part photos when available; follow them, but the parts you can see in "
+                    "the photos decide what is actually there (an online source may describe a slightly different "
+                    "version).")
+    content = [{"type": "text", "text": PLAN_PROMPT.format(n=len(photos), manual_note=note, reference_note=ref_note,
+                                                           language=LANGUAGES[lang])}]
     for i, page in enumerate(pages, 1):
         content.append({"type": "text", "text": f"Manual page {i}:"})
         content.append(image_part(page))
+    if ref.get("product"):
+        content.append({"type": "text", "text": f"The product is most likely: {ref['product']}"})
+    if ref.get("assembly"):
+        content.append({"type": "text", "text": f"How this product is assembled, according to its manual or shop "
+                                                f"pages found online: {ref['assembly']}"})
+    whose = "taken by the user" if ref.get("source") == "user" else "found online; may be a slightly different version"
+    for i, img in enumerate(ref.get("images", []), 1):
+        content.append({"type": "text", "text": f"Photo {i} of the finished product ({whose}):"})
+        content.append(image_part(img))
     # 一次請求最多 5 段影片。從同一段錄全部零件的影片切出來的：送整段一次 + 每個零件的時間段和最清楚那一格；
     # 個別短片超過 5 段：多的只送最清楚那一格
     sources = list(dict.fromkeys(p.source[0] for p in photos if isinstance(p, Clip) and p.source))
@@ -177,7 +200,7 @@ def plan(key: str, photos: list, manual=None, lang: str = "zh") -> dict:
         else:
             content.append({"type": "text", "text": f"Part photo {i}:"})
             content.append(image_part(p.photo if isinstance(p, Clip) else p))
-    return spark_json(key, content, PLAN_SCHEMA, "PartsPlan")
+    return spark_json(key, content, PLAN_SCHEMA, "PartsPlan", PLAN_EFFORT)
 
 
 def ground(key: str, img, targets: list[str], effort: str | None = GROUND_EFFORT) -> list[dict]:
