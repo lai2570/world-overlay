@@ -117,7 +117,8 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 #allPick{aspect-ratio:auto;min-height:118px}
 /* App 內錄影 */
 #rec{position:fixed;inset:0;background:#000;z-index:20}
-#recView{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#recView{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#recView.mirror,#seekView.mirror{transform:scaleX(-1)}  /* 只有前鏡頭（自拍、筆電）像照鏡子；後鏡頭照實顯示 */
 .rec-hint{position:absolute;left:12px;right:12px;top:calc(12px + env(safe-area-inset-top));background:rgba(0,0,0,.6);
   color:#fff;font-size:15px;line-height:1.5;padding:10px 14px;border-radius:12px}
 .rec-time{position:absolute;left:0;right:0;bottom:calc(122px + env(safe-area-inset-bottom));text-align:center;color:#fff;
@@ -130,7 +131,7 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 #recGo.on::after{content:"";display:block;width:26px;height:26px;margin:auto;background:#f43f5e;border-radius:5px}
 /* 即時辨識 */
 #seek{position:fixed;inset:0;background:#000;z-index:20}
-#seekView{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#seekView{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .reticle{position:absolute;left:50%;top:38%;width:min(70vw,52vh);aspect-ratio:1;transform:translate(-50%,-50%);
   border:3px solid var(--a);border-radius:18px;box-shadow:0 0 0 100vmax rgba(0,0,0,.28);pointer-events:none;transition:border-color .2s}
 .reticle.sure{border-color:#4ade80}
@@ -463,6 +464,12 @@ function closeRecorder() {
   show("home");
 }
 
+// 筆電的鏡頭通常不回報 facingMode，也當前鏡頭
+function showCamera(v, stream) {
+  v.classList.toggle("mirror", stream.getVideoTracks()[0]?.getSettings().facingMode !== "environment");
+  v.srcObject = stream;
+}
+
 $("recTile").onclick = async () => {
   if (!navigator.mediaDevices?.getUserMedia || recMime() === null)
     return alert(t("noRecorder"));
@@ -470,7 +477,7 @@ $("recTile").onclick = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({audio: false,
       video: {facingMode: {ideal: "environment"}, width: {ideal: 1280}, height: {ideal: 720}}});
     rec = {stream};
-    $("recView").srcObject = stream;
+    showCamera($("recView"), stream);
     $("recGo").classList.remove("on"); $("recTime").classList.remove("on");
     $("recTime").textContent = t("recStart", ALL_MAX_SEC);
     show("rec");
@@ -711,7 +718,7 @@ async function startSeek() {
       video: {facingMode: {ideal: "environment"}, width: {ideal: 1280}, height: {ideal: 720}}});
     player && player.stop();
     seek = {stream, on: true, recent: [], confirmed: null, confirming: false};
-    $("seekView").srcObject = stream;
+    showCamera($("seekView"), stream);
     $("seekCard").textContent = t("seekFirst");
     $("reticle").classList.remove("sure");
     show("seek");
