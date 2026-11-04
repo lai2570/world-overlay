@@ -16,7 +16,7 @@
 .landing{position:relative;align-items:center;justify-content:center;overflow:auto;background:radial-gradient(circle at 50% 45%,rgba(95,121,255,.25),transparent 30%),linear-gradient(135deg,#14151d 0%,#314c61 48%,#20232d 100%)}
 .landing::before{content:"";position:absolute;inset:0;background:linear-gradient(115deg,rgba(39,225,198,.24),transparent 28%,transparent 70%,rgba(255,93,142,.18));pointer-events:none}
 .landing-shell{position:relative;width:min(1280px,100%);min-height:100svh;margin:auto;padding:20px 32px 32px;display:grid;grid-template-rows:auto auto 1fr;gap:16px}
-.landing-nav{display:flex;align-items:center;justify-content:flex-start}.landing-nav b{font-size:15px;letter-spacing:.08em}
+.landing-nav{display:flex;align-items:center;justify-content:space-between}.landing-nav b{font-size:15px;letter-spacing:.08em}
 .landing-copy{position:relative;z-index:1;width:min(420px,44vw);margin:0 auto;text-align:center}
 .landing-copy .home-brand{width:100%;margin:0 auto 8px}.landing-title{margin:0;font-size:clamp(22px,3vw,40px);line-height:1;letter-spacing:-.04em;text-transform:uppercase}.landing-copy p{margin:7px 0 0;color:rgba(247,248,255,.72);font-size:11px}
 .landing-workspace{position:relative;display:grid;place-items:center;min-height:clamp(420px,62vh,600px);padding:16px 0}.landing-workspace::before,.landing-workspace::after{position:absolute;top:50%;width:140px;color:rgba(255,255,255,.42);font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-align:center}.landing-workspace::before{content:"INPUT";left:13%;transform:translateY(-50%)}.landing-workspace::after{content:"OUTPUT";right:13%;transform:translateY(-50%)}
@@ -151,7 +151,7 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
 <!-- 1. 拍照 -->
 <section class="screen on" id="landing">
   <div class="landing-shell">
-    <div class="landing-nav"><b>WORLD OVERLAY</b></div>
+    <div class="landing-nav"><b>WORLD OVERLAY</b><div class="lang"><button data-lang="en">EN</button><button data-lang="zh">中文</button></div></div>
     <div class="landing-copy"><div class="home-brand"><img src="/static/world-overlay-logo.svg" alt="World Overlay"></div><p data-i18n="landingCopy"></p></div>
     <div class="landing-workspace">
       <div class="floating-card left-top"><img src="/static/demo-manual.svg" alt="Microphone manual"><span data-i18n="demoManual"></span></div>
