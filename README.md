@@ -4,7 +4,13 @@ AI on-site guidance that gives beginners the confidence to start and helps them 
 
 Entry for the Meta Global AI Developer Hackathon 2026 (build period Oct 26 – Nov 4). Demo use case: IKEA furniture assembly.
 
-**Live demo: https://fast-bobby-fewer-isle.trycloudflare.com** (open it on a phone; "See an example" works without a passcode, while running your own analysis needs one because each run uses paid API calls)
+**Live demo: https://fast-bobby-fewer-isle.trycloudflare.com** (open it on a phone; "See an example" works without a passcode)
+
+### For judges
+
+- Running your own analysis needs a passcode; the judge passcode is in our hackathon submission.
+- It allows **10 analyses per day**, because each run uses paid API calls (about US$0.3–0.5). Before every run, the app asks you to confirm and shows how many runs are left today.
+- Need more runs? Contact me at lai2570@gmail.com and I'll raise the limit.
 
 Core loop: understand the scene → point out the object → guide the action → verify the result → adjust the next step
 
@@ -112,6 +118,7 @@ cloudflared tunnel --no-autoupdate --url https://localhost:8000 --no-tls-verify 
 ```
 
 Each analysis costs about US$0.3–0.5; at most 2 analyses run at the same time, and usage is recorded in `out/usage.json`.
+The home page shows the daily limit, and before every analysis the app asks the user to confirm using one run (with how many are left today).
 The tunnel URL changes every time it restarts; the computer must stay on and must not sleep.
 
 ## Developing together
