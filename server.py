@@ -82,7 +82,8 @@ PARTS_SAMPLE = ROOT / "out" / "parts_sample.json"
 SAMPLE_EN = ROOT / "sample_en.json"  # 範例的英文翻譯（零件名稱、目標、每一步的說明）
 SAMPLES = ("sample", "sample_en")
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
-                 ".js": "text/javascript; charset=utf-8", ".glb": "model/gltf-binary"}
+                 ".js": "text/javascript; charset=utf-8", ".glb": "model/gltf-binary",
+                 ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}
 
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()

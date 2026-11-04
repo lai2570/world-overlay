@@ -2,7 +2,7 @@
 
 AI on-site guidance that gives beginners the confidence to start and helps them learn fast. Point your phone camera at the parts and the AI walks you through one step at a time: it shows which part to pick up and where it goes, then looks at the camera view to check your work.
 
-Entry for the Meta Global AI Developer Hackathon 2026 (build period Oct 26 – Nov 4). Demo use case: IKEA furniture assembly.
+Entry for the Meta Global AI Developer Hackathon 2026 (build period Oct 26 – Nov 4). Demo use case: a microphone kit (part photos/video + its instruction manual); the same pipeline applies to other furniture and kit assembly.
 
 **Live demo: https://fast-bobby-fewer-isle.trycloudflare.com** (open it on a phone; "See an example" works without a passcode)
 
@@ -138,8 +138,8 @@ Code merged into `main` runs on this computer with this computer's API key, so r
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt   # macOS/Linux: .venv/bin/python
 cp .env.example .env                                  # fill in MODEL_API_KEY
-.venv/Scripts/python test_grounding.py samples/parts.jpg \
-  --target "longest wooden board" --target "wooden dowel" --sam "wooden dowel" --runs 3
+.venv/Scripts/python test_grounding.py samples/mic_parts.jpg \
+  --target "<part name>" --target "<another part>" --sam "<English part name>" --runs 3
 ```
 
 Result images and JSON are written to `out/`.
@@ -147,7 +147,7 @@ Result images and JSON are written to `out/`.
 Generate the assembly guide web page (about 60 seconds; `--reuse` only redraws the page without calling the API):
 
 ```bash
-.venv/Scripts/python build_guide.py samples/parts.jpg
+.venv/Scripts/python build_guide.py samples/mic_parts.jpg
 ```
 
 Create an API key on the **API keys** page at [dev.meta.ai](https://dev.meta.ai). Do not commit `.env`.
