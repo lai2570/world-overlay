@@ -1,144 +1,146 @@
 # WORLD OVERLAY
 
-讓新手敢操作、快速學會的 AI 現場引導。手機鏡頭對著零件，AI 一次帶一個步驟：指出現在要拿哪個零件、裝在哪裡，做完再看畫面檢查對不對。
+AI on-site guidance that gives beginners the confidence to start and helps them learn fast. Point your phone camera at the parts and the AI walks you through one step at a time: it shows which part to pick up and where it goes, then looks at the camera view to check your work.
 
-Meta Global AI Developer Hackathon 2026 參賽作品（開發期 10/26–11/4）。Demo 對象：IKEA 家具組裝。
+Entry for the Meta Global AI Developer Hackathon 2026 (build period Oct 26 – Nov 4). Demo use case: IKEA furniture assembly.
 
-核心流程：看懂現場 → 指出物件 → 引導操作 → 驗證結果 → 調整下一步
+**Live demo: https://fast-bobby-fewer-isle.trycloudflare.com** (open it on a phone; "See an example" works without a passcode, while running your own analysis needs one because each run uses paid API calls)
 
-## 架構（規劃中）
+Core loop: understand the scene → point out the object → guide the action → verify the result → adjust the next step
+
+## Architecture (planned)
 
 ```
-手機網頁（相機畫面 + 疊加框線 + 語音）
-   │ 按「下一步／檢查」時拍一張
+Phone web page (camera view + overlay outlines + voice)
+   │ takes one photo when you tap "Next / Check"
    ▼
-後端（保管 API key）
-   ├─ Muse Spark：依目前步驟找出零件位置 → 座標 + 指示
-   ├─ SAM 3.1：精準描出目標零件輪廓
-   └─ Muse Spark：比對完成畫面 → 通過／錯誤原因／修正建議
+Backend (holds the API key)
+   ├─ Muse Spark: finds the part for the current step → coordinates + instruction
+   ├─ SAM 3.1: traces a precise outline of the target part
+   └─ Muse Spark: compares the finished view → pass / what went wrong / how to fix it
    ▲
-steps.json（由說明書轉出、人工確認過的 SOP）
+steps.json (SOP converted from the manual, checked by a person)
 ```
 
-## 目前進度
+## Progress
 
-- [x] `test_grounding.py`：驗證 Muse Spark / SAM 3.1 能否在照片中找到指定零件，並量測延遲
-- [x] `test_pipeline.py`：Muse Spark 框出零件 → SAM 3.1 描出發光輪廓
-- [x] `test_assembly.py`：不給說明書，只看照片推理組裝步驟
-- [x] `build_guide.py`：一張照片 → 互動組裝引導網頁（兩個零件發光 + 動畫箭頭，逐步切換）
-- [ ] 說明書 → 步驟
-- [x] `server.py` + `static/`：手機 App（拍照 → 分析進度 → 逐步引導），API key 只放在電腦
-- [x] 即時追蹤：手機端畫面比對補償鏡頭平移（`static/motion.js`，每秒約 12 次）＋伺服器每 2–3 秒用 SAM 重描（`tracker.py`），跟丟時用 Muse Spark 依名稱重新找
-- [x] 鏡頭掃描：用即時鏡頭的畫面分析，分析完直接在同一個鏡頭上引導，從掃描那一格的輪廓開始追蹤（不用重新找零件）；換步驟時新零件立刻從掃描畫面的位置顯示；SAM 描到背景（面積暴增）時沿用上一次的輪廓
-- [ ] 驗證與修正流程
-- [ ] 語音提問
+- [x] `test_grounding.py`: checks whether Muse Spark / SAM 3.1 can find a given part in a photo, and measures latency
+- [x] `test_pipeline.py`: Muse Spark draws a box around the part → SAM 3.1 traces a glowing outline
+- [x] `test_assembly.py`: works out the assembly steps from a photo alone, without the manual
+- [x] `build_guide.py`: one photo → interactive assembly guide web page (two parts glow + animated arrow, step by step)
+- [ ] Manual → steps
+- [x] `server.py` + `static/`: phone app (take a photo → analyze progress → step-by-step guidance); the API key stays on the computer
+- [x] Live tracking: the phone matches frames to compensate for camera panning (`static/motion.js`, about 12 times a second) + the server re-traces with SAM every 2–3 seconds (`tracker.py`); when tracking is lost, Muse Spark finds the part again by name
+- [x] Camera scan: analysis runs on frames from the live camera, and guidance starts on the same camera right after, tracking from the outline in the scanned frame (no need to find the parts again); when the step changes, the new part shows up at once at its position in the scanned frame; if SAM traces the background (the area suddenly balloons), the previous outline is kept
+- [ ] Verify-and-correct loop
+- [ ] Voice questions
 
-## 主要流程：一個零件一張照片 → 組裝動畫（`parts_guide.py`）
+## Main flow: one photo per part → assembly animation (`parts_guide.py`)
 
-1. **Muse Spark** 看所有零件照片（和說明書，可省略），排出組裝步驟；每一步把零件 A 裝到零件 B 或前面完成的組合件上
-2. **Muse Spark** 找零件框和接口點 → **SAM 3.1** 剪成去背圖（框、框＋點兩種提示一起送，留下和背景差最多的那個；只送框附近、縮到 800 px 的裁切圖，SAM 一次呼叫的時間大多是上傳）
-3. **Muse Image** 每一步把 A 裝到 B 上，生成裝好的照片；裝到組合件時照著前一步的生成圖修改，前後一致
-4. 手機動畫（`static/assemble.js`）：A 的去背圖飛到 B 的接口 → 淡入生成的組裝結果 → 放大
+1. **Muse Spark** looks at all the part photos (and the manual, which is optional) and plans the assembly steps; each step attaches part A to part B or to an assembly built in an earlier step
+2. **Muse Spark** finds each part's box and connection points → **SAM 3.1** cuts it out (box and box + point prompts are sent together, and the one that differs most from the background is kept; only a crop around the box, scaled to 800 px, is sent, because most of each SAM call is upload time)
+3. **Muse Image** generates a photo of A attached to B for each step; when attaching to an assembly, it edits the image generated in the previous step so the steps stay consistent
+4. Phone animation (`static/assemble.js`): A's cutout flies to B's connection point → the generated assembly result fades in → zoom in
 
-**零件也可以錄影**：拿在手上轉一圈錄 3–8 秒（`clip.py`）。影片轉成 10 fps 的 H.264 MP4 上傳到 Files API 一次，同一個 file_id 給 **Muse Spark** 直接看影片（看得到背面的接口），也給 **SAM 3.1** 做影片追蹤：在最清楚的那一格給框，一次請求就拿到每一格的輪廓（60 格約 7 秒，每 1000 格 US$0.2）。動畫裡這個零件會先轉一圈，**Muse Image** 也會多拿到另一個角度的去背圖當參考。
+**Parts can also be filmed**: hold the part and turn it around for a 3–8 second clip (`clip.py`). The video is converted to a 10 fps H.264 MP4 and uploaded to the Files API once. The same file_id goes to **Muse Spark**, which watches the video directly (so it can see connectors on the back), and to **SAM 3.1** for video tracking: give it a box on the clearest frame and one request returns the outline for every frame (60 frames in about 7 seconds, US$0.2 per 1000 frames). In the animation, that part first spins around once, and **Muse Image** also gets a cutout from another angle as reference.
 
-**一段影片錄全部零件**（`video_split.py`）：零件放在桌上，鏡頭一個一個拍過去，每個停 2 秒（最長 150 秒）。
-不要拿起來轉：實測手拿著轉時，SAM 常把手或地板剪進去。**Muse Spark** 看整段影片，標出每個零件的時間段和
-最清楚、沒被手擋住的時間點，從整段影片已抽好的格子挑那一刻最清楚的一格當零件照片（不再切段、轉檔、上傳）。
-推理步驟時送整段影片一次（Spark 一次請求最多 5 段影片）加上每個零件那一格。
-Spark 看影片約每秒 260 token，100 秒的影片每次分析比 16 段各 5 秒的短片只多約 US$0.04。
+**One video for all parts** (`video_split.py`): lay the parts on the table and film them one at a time, holding 2 seconds on each (150 seconds max).
+Don't pick them up and turn them: in testing, when the part was turned in the hand, SAM often cut the hand or the floor into the mask. **Muse Spark** watches the whole video and marks each part's time range and
+the moment it is clearest and not blocked by a hand. The clearest frame at that moment is picked from the frames already extracted from the whole video and used as the part photo (no more cutting into clips, converting, or uploading).
+For step planning, the whole video is sent once (Spark takes up to 5 videos per request), plus each part's frame.
+Spark uses about 260 tokens per second of video, so analyzing one 100-second video costs only about US$0.04 more per run than 16 clips of 5 seconds each.
 
-實測 14 個零件、115 秒手機影片（透過通道、手機網路）：上傳約 4 分鐘、切段約 2.5 分鐘、推理 83 秒、去背 82 秒，
-第一步要等約 9 分半。改成只挑格子後，6 個零件的測試影片切段 + 推理 + 去背約 2 分鐘。
-Muse Image 每步約 20–25 秒、裝到組合件上的步驟要等前一步，邊看邊補上。
+Measured with 14 parts and a 115-second phone video (through the tunnel, on mobile data): upload about 4 minutes, splitting about 2.5 minutes, planning 83 seconds, cutouts 82 seconds,
+so the first step took about 9.5 minutes. After switching to picking frames only, splitting + planning + cutouts for a 6-part test video take about 2 minutes.
+Muse Image takes about 20–25 seconds per step, and a step that attaches to an assembly has to wait for the previous step; results fill in while you watch.
 
-去背候選＋把關：每個零件同時送 SAM 三種提示（框／框＋點、框內縮＋角落負向點、英文類別名的文字提示），
-拿到的遮罩塗白背景後一起給 **Muse Spark** 看，挑「完整、沒有桌面／手」的那個；都不對時退回沒描到地板的那個。
-白色線材在米色桌上只給框常描成桌面，文字提示和 Spark 把關後能挑對。每個零件多約 5–10 秒（零件之間同時跑）。
-每次分析用到的零件畫面存在 `out/app/<job>_parts/`，出錯時可以拿來重跑。
+Cutout candidates + review: each part is sent to SAM with three kinds of prompts at once (box / box + point, a shrunken box + negative points at the corners, and a text prompt with the English category name).
+The resulting masks are drawn on a white background and given to **Muse Spark** together, which picks the one that is "complete, with no table or hands"; if none is right, it falls back to the one that didn't trace the floor.
+With only a box, a white cable on a beige table is often traced as the table; with the text prompt and Spark's review, the right one gets picked. This adds about 5–10 seconds per part (parts run in parallel).
+The part images used in each analysis are saved in `out/app/<job>_parts/`, so they can be re-run when something goes wrong.
 
-SAM 遮罩解碼（`sam_fast.py`）：meta_sam_parser 會把每個遮罩用純 Python 解一次驗證、再編碼回去比對，一個約 1 秒；
-影片 60 格就要 1 分鐘以上。改成用到才解、不做比對、解過的記住，同一段影片從 60 多秒降到約 1 秒。
+SAM mask decoding (`sam_fast.py`): meta_sam_parser decodes every mask once in pure Python to validate it and then re-encodes it to compare, about 1 second per mask;
+a 60-frame video takes over a minute. Decoding only when needed, skipping the comparison, and caching decoded masks brings the same video down from 60+ seconds to about 1 second.
 
-約 45 秒開始播第一步，之後每一步的結果圖陸續補上（6 個零件全部約 2 分 20 秒）。
-命令列：`.venv/Scripts/python parts_guide.py samples/mic_each/*.jpg --manual samples/mic_manual.jpg`（零件可以混 .mp4/.mov）
-舊版「一張照片標出零件」流程在 `/static/photo.html`。
+The first step starts playing after about 45 seconds, and the result images for later steps fill in as they finish (about 2 minutes 20 seconds for all 6 parts).
+Command line: `.venv/Scripts/python parts_guide.py samples/mic_each/*.jpg --manual samples/mic_manual.jpg` (parts can mix in .mp4/.mov)
+The older "mark the parts in one photo" flow is at `/static/photo.html`.
 
-## 手機試用
+## Try it on a phone
 
 ```bash
 .venv/Scripts/python server.py
 ```
 
-手機連同一個 Wi-Fi，打開終端機印出的網址（例如 `http://192.168.1.172:8000`）。
-「看範例」不呼叫 API，可以先看引導畫面。
+Connect the phone to the same Wi-Fi and open the URL printed in the terminal (for example `http://192.168.1.172:8000`).
+"See an example" doesn't call the API, so you can look at the guidance screens first.
 
-要用即時鏡頭（App 內開相機需要 HTTPS），改用：
+To use the live camera (opening the camera inside the app requires HTTPS), run this instead:
 
 ```bash
 .venv/Scripts/python server.py --https
 ```
 
-會自動產生區網用的自簽憑證（`certs/`，不會進 git）。手機第一次打開會出現安全性警告，點「進階」→「繼續前往」。
-首頁拍「📖 說明書」（可略過）和「🔩 零件」各一張，按開始分析，約 45 秒後逐步顯示發光輪廓和箭頭動畫。
-即時鏡頭目前不夠準（手機移動時 AI 回應跟不上），入口預設隱藏；網址後面加 `#live` 才會出現。
+A self-signed certificate for the local network is generated automatically (`certs/`, not committed to git). The first time you open it on the phone you'll see a security warning; tap "Advanced" → "Proceed".
+On the home page, take one photo each of the "📖 Manual" (optional) and the "🔩 Parts", then tap Start analysis. After about 45 seconds the glowing outlines and arrow animation appear step by step.
+The live camera isn't accurate enough yet (the AI can't keep up while the phone moves), so its entry is hidden by default; add `#live` to the end of the URL to show it.
 
-命令列也可以帶說明書：`.venv/Scripts/python build_guide.py samples/mic_parts.jpg --manual samples/mic_manual.jpg`
+You can also pass the manual on the command line: `.venv/Scripts/python build_guide.py samples/mic_parts.jpg --manual samples/mic_manual.jpg`
 
-**App 內錄影**：首頁「📹 在 App 裡錄全部零件」直接用瀏覽器錄（MediaRecorder，約 720p、2.5 Mbps），
-60 秒約 19 MB，手機相機 App 錄的 1080p 約大 5 倍；需要 HTTPS（`--https` 或通道）。
+**In-app recording**: "Record all parts in the app" on the home page records directly in the browser (MediaRecorder, about 720p, 2.5 Mbps).
+60 seconds is about 19 MB; 1080p from the phone's camera app is about 5 times larger. Requires HTTPS (`--https` or the tunnel).
 
-## 即時辨識：鏡頭對著零件 → 這是哪個、要接到哪裡（`identify.py`）
+## Live identification: point the camera at a part → which one it is and where it connects (`identify.py`)
 
-分析完後在動畫畫面按「📷 對準零件」。手機每 0.3 秒把框裡的畫面送回電腦，用 Meta 開源的 **DINOv2**（ViT-B/14，
-在這台電腦的 CPU 上跑，一張約 0.4 秒、不花 API 額度）和每個零件的去背圖比對，顯示「這是 X → 第 k 步接到 Y」
-和裝好的樣子。比對方法：零件去背圖的每一塊（14×14 像素）在畫面裡找最像的一塊、取平均；
-再換成標準分數，扣掉黑色線材這種「對什麼都像」的零件的優勢。前兩名分數接近時請 **Muse Spark** 確認（約 3–5 秒）。
-實測（不同時間拍的照片對上手機影片的去背圖）6 個零件認對 4 個，認錯的一個是去背失敗的零件。
+After the analysis, tap "📷 Find a part" on the animation screen. Every 0.3 seconds the phone sends the view inside the frame back to the computer, where Meta's open-source **DINOv2** (ViT-B/14,
+running on this computer's CPU, about 0.4 seconds per image, no API credits used) compares it with each part's cutout and shows "This is X → connects to Y in step k"
+along with what it looks like assembled. How matching works: for each patch (14×14 pixels) of the part cutout, find the most similar patch in the view and take the average;
+then convert to standard scores to remove the advantage of parts that "look like everything", such as black cables. When the top two scores are close, **Muse Spark** confirms (about 3–5 seconds).
+In testing (photos taken at a different time, matched against cutouts from the phone video), 4 of 6 parts were identified correctly; the one it got wrong was a part whose cutout had failed.
 
-安裝：`requirements.txt` 裡有 CPU 版 PyTorch 和 transformers。
+Installation: `requirements.txt` includes the CPU build of PyTorch and transformers.
 
-## 給隊友試用
+## Sharing with teammates
 
-API key 只在這台電腦，隊友透過網址用，一人一組通行碼、每人每天限次數：
+The API key stays only on this computer; teammates use the app through a URL, each with their own passcode and a daily usage limit:
 
 ```bash
-.venv/Scripts/python server.py --add-user 小明        # 印出小明的通行碼（存在 users.json，不進 git）
-.venv/Scripts/python server.py --remove-user 小明     # 收回，伺服器不用重開
-APP_PASSCODE=<自己的> APP_DAILY_RUNS=10 .venv/Scripts/python autodeploy.py --https   # 參數交給 server.py
-cloudflared tunnel --no-autoupdate --url https://localhost:8000 --no-tls-verify   # 印出 https://xxx.trycloudflare.com
+.venv/Scripts/python server.py --add-user alice        # prints alice's passcode (stored in users.json, not committed to git)
+.venv/Scripts/python server.py --remove-user alice     # revokes it; no server restart needed
+APP_PASSCODE=<your-own> APP_DAILY_RUNS=10 .venv/Scripts/python autodeploy.py --https   # arguments are passed on to server.py
+cloudflared tunnel --no-autoupdate --url https://localhost:8000 --no-tls-verify   # prints https://xxx.trycloudflare.com
 ```
 
-每次分析約 US$0.3–0.5；同時最多 2 個分析在跑，用量記在 `out/usage.json`。
-通道網址每次重開都會變；電腦要開著、不能睡眠。
+Each analysis costs about US$0.3–0.5; at most 2 analyses run at the same time, and usage is recorded in `out/usage.json`.
+The tunnel URL changes every time it restarts; the computer must stay on and must not sleep.
 
-## 一起開發
+## Developing together
 
-隊友有 repo 的 Write 權限，在自己電腦上跑（用自己的 API key）。每人開分支 → 推上去 → 開 Pull Request → 合併進 `main`。
-`autodeploy.py` 每 30 秒看一次 `main`，有新 commit 就自動拉到這台電腦：
+Teammates have Write access to the repo and run it on their own computers (with their own API key). Everyone creates a branch → pushes it → opens a Pull Request → merges into `main`.
+`autodeploy.py` checks `main` every 30 seconds and automatically pulls any new commit onto this computer:
 
-- 只改 `static/`：拉下來就生效，後端不用重開
-- 改到 `.py`：等沒有分析在跑才重開 `server.py`（約 5 秒連不上）
-- 改到 `requirements.txt`：先 `pip install` 再重開
+- Only `static/` changed: takes effect as soon as it's pulled; no backend restart
+- A `.py` file changed: waits until no analysis is running, then restarts `server.py` (unreachable for about 5 seconds)
+- `requirements.txt` changed: runs `pip install` first, then restarts
 
-合併進 `main` 的程式會在這台電腦上、用這台的 API key 執行，合併前要先看過。
+Code merged into `main` runs on this computer with this computer's API key, so review it before merging.
 
-## 執行測試腳本
+## Running the test scripts
 
 ```bash
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt   # macOS/Linux: .venv/bin/python
-cp .env.example .env                                  # 填入 MODEL_API_KEY
+cp .env.example .env                                  # fill in MODEL_API_KEY
 .venv/Scripts/python test_grounding.py samples/parts.jpg \
-  --target "最長的木板" --target "木釘" --sam "wooden dowel" --runs 3
+  --target "longest wooden board" --target "wooden dowel" --sam "wooden dowel" --runs 3
 ```
 
-結果圖與 JSON 會輸出到 `out/`。
+Result images and JSON are written to `out/`.
 
-產生組裝引導網頁（約 60 秒；`--reuse` 只重畫網頁不呼叫 API）：
+Generate the assembly guide web page (about 60 seconds; `--reuse` only redraws the page without calling the API):
 
 ```bash
 .venv/Scripts/python build_guide.py samples/parts.jpg
 ```
 
-API key 在 [dev.meta.ai](https://dev.meta.ai) 的 **API keys** 頁建立，請勿提交 `.env`。
+Create an API key on the **API keys** page at [dev.meta.ai](https://dev.meta.ai). Do not commit `.env`.
