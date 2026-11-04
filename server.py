@@ -406,10 +406,10 @@ class Handler(BaseHTTPRequestHandler):
                 job.pop("result", None)  # 手機已經有這一版
             return self.send_json(job)
         if url.path in ("/api/models", "/api/model"):
-            if not self.authorized():
-                return
             q = parse_qs(url.query)
             job = q.get("job", [""])[0]
+            if job not in SAMPLES and not self.authorized():  # 範例的 3D 模型不用通行碼（只看範例的人不會一直被問）
+                return
             if not (job in SAMPLES or job.isalnum()):
                 return self.send_json({"error": self.t("找不到這次分析的結果", "Result not found")}, HTTPStatus.NOT_FOUND)
             if url.path == "/api/model":
