@@ -28,7 +28,7 @@
   一人一組：.venv/Scripts/python server.py --add-user 小明   → 印出他的通行碼，存在 users.json（不進 git）
             .venv/Scripts/python server.py --remove-user 小明
   環境變數 APP_PASSCODE 是自己用的通行碼，不限次數。
-  有設定任何通行碼時：每人每天最多 APP_DAILY_RUNS 次分析（預設 10，用量記在 out/usage.json），
+  有設定任何通行碼時：每人每天最多 APP_DAILY_RUNS 次分析（預設 10，用量記在 out/usage.json；首頁會顯示，每次分析前手機會先確認），
   全部人同時最多 MAX_RUNNING 個分析在跑。都沒設定時不檢查（只在家裡 Wi-Fi 用）。
 """
 import argparse
@@ -98,6 +98,14 @@ def load_users() -> dict[str, str]:
 
 def tr(lang: str, zh: str, en: str) -> str:
     return en if lang == "en" else zh
+
+
+def runs_left(user: str | None) -> int | None:
+    """今天還剩幾次分析；沒設定通行碼或是自己（不限次數）回傳 None。"""
+    if user is None or user == OWNER:
+        return None
+    usage = json.loads(USAGE_FILE.read_text(encoding="utf-8")) if USAGE_FILE.exists() else {}
+    return max(0, DAILY_RUNS - usage.get(time.strftime("%Y-%m-%d"), {}).get(user, 0))
 
 
 def take_run(user: str | None, lang: str = "zh") -> str | None:
@@ -379,8 +387,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             with jobs_lock:
                 return self.send_json({"running": sum(j["status"] == "running" for j in jobs.values())})
-        if url.path == "/api/ping":  # 上傳大影片前先確認通行碼
-            return self.authorized() and self.send_json({"ok": True})
+        if url.path == "/api/ping":  # 開始分析前確認通行碼，順便回傳今天剩幾次（手機先問使用者要不要用掉一次）
+            return self.authorized() and self.send_json({"ok": True, "left": runs_left(self.user), "limit": DAILY_RUNS})
+        if url.path == "/api/limits":  # 首頁顯示每天幾次，不用通行碼
+            return self.send_json({"daily": DAILY_RUNS})
         if url.path == "/api/job":
             if not self.authorized():
                 return

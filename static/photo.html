@@ -177,6 +177,10 @@ const blobToDataUrl = b => new Promise(r => { const f = new FileReader(); f.onlo
 
 async function analyze(blob, manual) {
   const url = URL.createObjectURL(blob);
+  let q;  // 每次分析都會用掉一次額度，先讓使用者確認
+  try { q = await api("/api/ping"); } catch (e) { return alert(e.message); }
+  if (q.left === 0) return alert(`今天的 ${q.limit} 次分析已經用完，明天再試`);
+  if (q.left != null && !confirm(`要開始分析嗎？會用掉今天 ${q.limit} 次中的 1 次（還剩 ${q.left} 次）。`)) return;
   $("busyImg").src = url;
   $("log").replaceChildren(); $("log").classList.remove("finished");
   $("err").textContent = ""; $("errNav").style.display = "none";

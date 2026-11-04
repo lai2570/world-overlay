@@ -21,7 +21,7 @@
 .landing-copy .home-brand{width:100%;margin:0 auto 8px}.landing-title{margin:0;font-size:clamp(22px,3vw,40px);line-height:1;letter-spacing:-.04em;text-transform:uppercase}.landing-copy p{margin:7px 0 0;color:rgba(247,248,255,.72);font-size:11px}
 .landing-workspace{position:relative;display:grid;place-items:center;min-height:clamp(420px,62vh,600px);padding:16px 0}.landing-workspace::before,.landing-workspace::after{position:absolute;top:50%;width:140px;color:rgba(255,255,255,.42);font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-align:center}.landing-workspace::before{content:"INPUT";left:13%;transform:translateY(-50%)}.landing-workspace::after{content:"OUTPUT";right:13%;transform:translateY(-50%)}
 .landing-upload{position:relative;z-index:2;width:min(560px,55vw);min-height:300px;padding:28px;border:1px solid rgba(255,255,255,.2);border-radius:27px;background:linear-gradient(140deg,rgba(34,48,74,.62),rgba(24,37,59,.36));box-shadow:0 30px 70px rgba(7,10,24,.34),inset 0 1px rgba(255,255,255,.15);backdrop-filter:blur(20px);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-.landing-upload .material-symbols-rounded{font-size:28px}.landing-upload h2{font-size:15px;margin:12px 0 5px}.landing-upload p{max-width:300px;margin:0;color:rgba(247,248,255,.68);font-size:11px}.landing-upload .landing-next{width:80px;margin-top:18px;padding:8px 12px;font-size:12px;border-radius:999px}
+.landing-upload .material-symbols-rounded{font-size:28px}.landing-upload h2{font-size:15px;margin:12px 0 5px}.landing-upload p{max-width:300px;margin:0;color:rgba(247,248,255,.68);font-size:11px}.landing-upload .landing-next{width:80px;margin-top:18px;padding:8px 12px;font-size:12px;border-radius:999px}.landing-upload .quota-note{margin-top:12px;font-size:10px;color:rgba(247,248,255,.55)}
 .floating-card{position:absolute;width:170px;padding:8px;border-radius:13px;background:rgba(12,17,27,.78);border:1px solid rgba(255,255,255,.18);box-shadow:0 16px 30px rgba(0,0,0,.25);backdrop-filter:blur(12px);transform:rotate(var(--r));z-index:1}.floating-card img{display:block;width:100%;height:94px;object-fit:cover;border-radius:9px}.floating-card span{display:block;margin:8px 3px 2px;color:rgba(255,255,255,.76);font-size:10px}.floating-card.left-top{left:0;top:22%;--r:-9deg}.floating-card.left-bottom{left:20px;bottom:10%;--r:9deg}.floating-card.right-top{right:0;top:18%;--r:7deg}.floating-card.right-bottom{right:14px;bottom:9%;--r:-7deg}
 .demo-launch{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));z-index:5;display:flex;align-items:center;gap:8px;padding:12px 16px;border:1px solid rgba(255,255,255,.28);border-radius:999px;background:rgba(255,79,134,.92);color:#111;font-size:13px;box-shadow:0 12px 32px rgba(0,0,0,.3)}
 .stepper{display:none}.flow-back{align-self:flex-start;color:var(--mute);background:none;padding:4px 0;font-size:13px}
@@ -157,7 +157,7 @@ button.tile{background:none;font:inherit;color:var(--mute);flex:none;font-weight
     <div class="landing-workspace">
       <div class="floating-card left-top"><img src="/static/demo-manual.svg" alt="Microphone manual"><span data-i18n="demoManual"></span></div>
       <div class="floating-card left-bottom"><img src="/static/demo-parts.svg" alt="Microphone parts"><span data-i18n="demoParts"></span></div>
-      <div class="landing-upload"><span class="material-symbols-rounded">add</span><h2 data-i18n="uploadPrompt"></h2><p data-i18n="uploadHint"></p><button class="btn primary landing-next" id="startFlow" data-i18n="startFlow"></button></div>
+      <div class="landing-upload"><span class="material-symbols-rounded">add</span><h2 data-i18n="uploadPrompt"></h2><p data-i18n="uploadHint"></p><button class="btn primary landing-next" id="startFlow" data-i18n="startFlow"></button><p class="quota-note" data-i18n="quotaNote"></p></div>
       <div class="floating-card right-top"><img src="/static/demo-assembly.svg" alt="Microphone assembly animation"><span data-i18n="demoAnimation"></span></div>
       <div class="floating-card right-bottom"><img src="/static/demo-3d.svg" alt="Microphone 3D guide"><span data-i18n="demo3d"></span></div>
     </div>
@@ -554,7 +554,16 @@ function fail(msg) {
   $("errNav").hidden = false;
 }
 
+// 每次分析都會用掉一次額度（付費 API），先讓使用者確認
+async function confirmRun() {
+  let q;
+  try { q = await api("/api/ping"); } catch (e) { alert(e.message); return false; }
+  if (q.left === 0) { alert(t("noRunsLeft", q.limit)); return false; }
+  return q.left == null || confirm(t("confirmRun", q.left, q.limit));
+}
+
 async function analyze() {
+  if (!await confirmRun()) return;
   $("log").replaceChildren(); $("err").textContent = ""; $("errNav").hidden = true;
   $("thumbs").replaceChildren(...(all ? [all] : parts).map(p => Object.assign(document.createElement("img"), {src: p.thumb})));
   show("busy");
@@ -568,7 +577,6 @@ async function analyze() {
       const mb = t("uploadVideo", (all.file.size / 1024 / 1024).toFixed(0));
       addLog(mb);
       const li = $("log").lastChild;
-      await api("/api/ping");  // 先確認通行碼，免得大檔案傳完才被擋
       const video = await uploadVideo(all.file, f => li.textContent = `${mb} ${Math.round(f * 100)}%`);
       body = {manual: manualPages(), video, lang: LANG};
     } else {
@@ -755,6 +763,7 @@ $("again").onclick = $("retry").onclick = () => {
 // 換語言：只有首頁能換（分析結果是用當時的語言寫的）
 $("nextStep").onclick = () => { homeStep = 2; updateHomeStep(); };
 $("startFlow").onclick = () => show("home");
+fetch("/api/limits").then(r => r.json()).then(d => { window.DAILY_LIMIT = d.daily; applyI18n(); }).catch(() => {});
 $("demoLaunch").onclick = () => {
   const sample = $("sample");
   if (sample) sample.click();
