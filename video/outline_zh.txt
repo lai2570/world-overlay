@@ -1,0 +1,44 @@
+WORLD OVERLAY
+Turn complex manuals into visual, step-by-step instructions.
+把複雜說明書，變成看得懂的操作步驟。
+一、影片應該怎麼講？
+建議 120～150 秒，採用「新手遇到問題 → 現有解法不足 → 我們的解法 → 實際 Demo → 未來價值」。
+01｜TA 是誰？
+0–10 秒
+目標使用者：
+第一次組裝家具的新手
+技職學生、初階技術人員
+不熟悉設備與零件的現場工作者
+旁白：
+Have you ever tried to assemble something, but had no idea where to start?
+02｜痛點：說明書看不懂
+旁白：
+Traditional manuals are full of diagrams, symbols, and technical instructions. You know what the parts look like, but figuring out which part goes where can still be confusing.
+痛點字幕：
+零件太多，分不清楚。
+不知道哪個元件要裝在哪裡。
+靜態圖片難以理解組裝方向。
+裝錯了還得拆掉重來。
+03｜現有 AI 的不足
+旁白：
+Even when AI explains the instructions, text-based answers still leave users guessing how each component should fit together.
+重點：AI 能解釋文字，但使用者還是需要自己在腦中想像零件的組合方式。
+04｜WORLD OVERLAY 解決方案
+旁白：
+Meet WORLD OVERLAY. Upload your instruction manual, and let AI transform complex assembly instructions into visual, step-by-step animations.
+畫面展示：
+上傳 PDF 說明書。
+AI 解析元件與組裝順序。
+生成元件組裝動畫。
+逐步呈現哪個元件應該裝到哪裡。
+05｜實際產品 Demo
+![普象网_普象工业设计小站_工业产品创意设计_原创分享交流
+普象网](https://images.openai.com/static-rsc-4/jZsaUmchYV9G5_aHrHumiLGZ5VR2jukXEPhofSKCZKpG2Qn0kWNaIx64mNbtJfUPlvPhLhgorAzOnpwh49WdN8RrvGvfFPpdfsYTMGFW6yyzJgbF7-e4n1l1scVW8jfqdI_Sy-N2aTdwrNteBZB6hkOXdoMZNNUDMMAKg-pngxkaLo72wep04mZRdCL1XNVG?purpose=fullsize)
+旁白：
+Instead of figuring out every diagram yourself, simply follow the animation. See which component goes where, understand how parts connect, and learn one step at a time.
+這段要盡量放你們真正產品的錄影，不要用生成影片假裝是產品功能。
+06｜願景與收尾
+旁白：
+We believe learning practical skills shouldn’t depend on how well you understand a manual.WORLD OVERLAY turns technical knowledge into visual experiences, making complex tasks easier to learn and easier to perform.
+最後 Slogan：
+See the steps. Understand the process. Learn by doing.

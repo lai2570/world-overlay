@@ -4,7 +4,8 @@ AI on-site guidance that gives beginners the confidence to start and helps them 
 
 Entry for the Meta Global AI Developer Hackathon 2026 (build period Oct 26 – Nov 4). Demo use case: a microphone kit (part photos/video + its instruction manual); the same pipeline applies to other furniture and kit assembly.
 
-**Live demo: https://fast-bobby-fewer-isle.trycloudflare.com** (open it on a phone; "See an example" works without a passcode)
+> The hackathon is over and the live demo server is offline. Demo video: see the GitHub Release `demo-video`.
+> To rebuild the project (or something like it), start with [REBUILD.md](REBUILD.md).
 
 ### For judges
 

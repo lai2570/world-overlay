@@ -1,0 +1,13 @@
+[
+ {"id": "s1", "text": "Have you ever tried to assemble something, but had no idea where to start?"},
+ {"id": "s2", "text": "Traditional manuals are full of diagrams, symbols, and technical instructions. You can see the parts on your table, but figuring out which part goes where is still confusing."},
+ {"id": "s3", "text": "Even when A.I. explains the instructions, text-only answers still leave you guessing how each part fits together."},
+ {"id": "s4", "text": "Meet World Overlay. Upload your instruction manual and a quick video of your parts, and A.I. turns them into visual, step-by-step assembly animations."},
+ {"id": "s5a", "text": "Here is a real test: a microphone streaming kit with thirteen parts, and a manual written in Spanish. We filmed the parts one by one with a phone."},
+ {"id": "s5b", "text": "Muse Spark watches the video and reads the manual. SAM 3.1 cuts out every part, and Muse Spark plans eleven assembly steps."},
+ {"id": "s5c", "text": "Instead of decoding every diagram yourself, simply follow the animation. Each part flies to the spot where it connects, and Muse Image shows what the step looks like when it is done."},
+ {"id": "s5d", "text": "Step by step, the kit comes together, from the desk clamp to the sound card and the USB adapter."},
+ {"id": "s5e", "text": "Want a closer look? Spin any part in 3D, generated from the same photos."},
+ {"id": "s6", "text": "We believe learning practical skills should not depend on how well you can read a manual. World Overlay turns technical knowledge into visual experiences, making complex tasks easier to learn, and easier to do."},
+ {"id": "s7", "text": "See the steps. Understand the process. Learn by doing."}
+]

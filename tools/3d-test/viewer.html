@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>3D 零件預覽</title>
+<script type="module" src="https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<style>
+  :root { --bg: #f6f6f4; --card: #fff; --fg: #1d1d1b; --muted: #6b6b66; --line: #e3e3de; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --card: #20201e; --fg: #ececea; --muted: #9a9a94; --line: #33332f; }
+  }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, "Microsoft JhengHei", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.note { color: var(--muted); margin: 0 0 16px; }
+  .part { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 16px; }
+  .part h2 { font-size: 16px; margin: 0 0 8px; }
+  .row { display: grid; grid-template-columns: 120px repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: start; }
+  .row img { width: 120px; height: 120px; object-fit: contain; background: repeating-conic-gradient(#0001 0 25%, transparent 0 50%) 0 0/16px 16px; border-radius: 6px; }
+  model-viewer { width: 100%; height: 260px; background: var(--bg); border-radius: 6px; --poster-color: transparent; }
+  .cap { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>3D 零件預覽（Hunyuan3D-2，只有形狀）</h1>
+<p class="note">左邊是輸入的去背圖；右邊用滑鼠拖曳旋轉、滾輪縮放。</p>
+<div id="list"></div>
+<script>
+const RUNS = { mini: "mini-Turbo（5 步）", full: "完整版 v2-0（50 步）" };
+(async () => {
+  const stats = {};
+  for (const r of Object.keys(RUNS)) {
+    try { stats[r] = await (await fetch(`out/${r}/stats.json`)).json(); } catch { /* 還沒跑 */ }
+  }
+  const names = [...new Set(Object.values(stats).flatMap(Object.keys))].sort();
+  const list = document.getElementById("list");
+  for (const n of names) {
+    const div = document.createElement("div");
+    div.className = "part";
+    let html = `<h2>${n.replace(/^\d+_/, "")}</h2><div class="row"><img src="parts/${n}.png" alt="">`;
+    for (const [r, label] of Object.entries(RUNS)) {
+      const s = stats[r]?.[n];
+      if (!s) continue;
+      if (s.failed) { html += `<div class="cap">${label}：生成失敗（${s.seconds} 秒）</div>`; continue; }
+      html += `<div><model-viewer src="out/${r}/${n}.glb" camera-controls auto-rotate shadow-intensity="1" exposure="1.1"></model-viewer>
+        <div class="cap">${label}：${s.seconds} 秒，顯示卡記憶體 ${s.peak_vram_gb} GB，${s.faces.toLocaleString()} 面</div></div>`;
+    }
+    div.innerHTML = html + "</div>";
+    list.appendChild(div);
+  }
+  if (!names.length) list.textContent = "還沒有結果。";
+})();
+</script>
+</body>
+</html>

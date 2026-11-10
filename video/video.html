@@ -1,0 +1,281 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>World Overlay Demo</title>
+<style>
+:root{--a:#ffb020;--b:#22d3ee;--bg:#0b0d10;--card:#16191e;--fg:#f2f4f7;--mute:#9aa3ae}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--fg);font-family:"Segoe UI",system-ui,sans-serif}
+.scene{position:absolute;inset:0;opacity:0;overflow:hidden}
+.full{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.shade{position:absolute;inset:0}
+.h1{font-size:76px;font-weight:700;letter-spacing:-.02em;line-height:1.08}
+.h2{font-size:54px;font-weight:700;letter-spacing:-.01em;line-height:1.12}
+.kicker{font-size:24px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--a)}
+.chip{display:inline-block;padding:12px 26px;border-radius:999px;border:2px solid var(--b);color:var(--b);font-size:30px;font-weight:600;background:rgba(11,13,16,.6)}
+.card{background:var(--card);border:1px solid rgba(255,255,255,.12);border-radius:28px;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.appframe{position:absolute;left:50%;top:70px;width:1498px;height:842px;transform:translateX(-50%);border-radius:22px;overflow:hidden;border:1px solid rgba(255,255,255,.14);box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.appframe img{width:100%;height:100%;object-fit:cover;display:block}
+.badge{position:absolute;top:44px;left:48px;padding:10px 22px;border-radius:999px;background:rgba(11,13,16,.82);border:1px solid rgba(255,255,255,.22);font-size:24px;font-weight:600;display:flex;gap:12px;align-items:center}
+.badge.topbadge{left:50%;top:12px;transform:translateX(-50%);z-index:3;padding:6px 20px;font-size:22px;white-space:nowrap}
+.badge i{width:14px;height:14px;border-radius:50%;background:#ff4f6d;display:inline-block}
+#sub{position:absolute;left:50%;bottom:54px;transform:translateX(-50%);max-width:1500px;text-align:center;font-size:38px;font-weight:600;line-height:1.3;
+  padding:12px 30px;border-radius:16px;background:rgba(0,0,0,.66);color:#fff;opacity:0;z-index:50}
+#dip{position:absolute;inset:0;background:var(--bg);opacity:0;z-index:40;pointer-events:none}
+.pain{display:flex;align-items:center;gap:26px;font-size:42px;font-weight:600;margin:0 0 34px}
+.pain b{flex:none;width:58px;height:58px;border-radius:50%;background:rgba(255,79,109,.15);border:2px solid #ff4f6d;color:#ff4f6d;display:grid;place-items:center;font-size:32px}
+.flow{display:flex;gap:28px;position:absolute;left:120px;right:120px;top:600px}
+.flow .card{flex:1;padding:30px 30px 34px}
+.flow .n{font-size:26px;font-weight:700;color:var(--a);margin-bottom:12px}
+.flow .t{font-size:32px;font-weight:600;line-height:1.25}
+.flow .m{font-size:24px;color:var(--b);margin-top:12px;font-weight:600}
+.cut{position:absolute;width:250px;height:250px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+.cut img{max-width:210px;max-height:180px;object-fit:contain;filter:drop-shadow(0 0 14px rgba(255,176,32,.55))}
+.cut span{margin-top:10px;font-size:22px;font-weight:600;color:var(--fg);background:rgba(22,25,30,.9);padding:4px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.14)}
+.bubble{position:absolute;padding:28px 34px;border-radius:30px;font-size:31px;line-height:1.45}
+</style></head><body>
+
+<!-- S1 hook -->
+<section class="scene" id="s1">
+  <img class="full" id="s1img" src="assets/photos/20261026_232207.jpg">
+  <div class="shade" style="background:linear-gradient(90deg,rgba(11,13,16,.92) 0%,rgba(11,13,16,.55) 55%,rgba(11,13,16,.2) 100%)"></div>
+  <div style="position:absolute;left:120px;top:250px;width:1000px">
+    <div class="kicker" id="s1k">First time building something?</div>
+    <div class="h1" id="s1h" style="margin-top:22px">So many parts.<br>Where do you start?</div>
+    <div id="s1chips" style="margin-top:46px;display:flex;flex-wrap:wrap;gap:16px">
+      <span class="chip">First-time furniture builders</span><span class="chip">Vocational students</span>
+      <span class="chip">New technicians</span><span class="chip">Field workers new to equipment</span>
+    </div>
+  </div>
+</section>
+
+<!-- S2 pain -->
+<section class="scene" id="s2">
+  <div class="shade" style="background:radial-gradient(ellipse at 30% 50%,#1b2130,#0b0d10 70%)"></div>
+  <div class="card" id="s2card" style="position:absolute;left:110px;top:150px;width:860px;height:645px;overflow:hidden;padding:0">
+    <img src="assets/photos/manual.jpg" style="width:100%;height:100%;object-fit:cover">
+  </div>
+  <div style="position:absolute;left:1060px;top:170px;width:780px">
+    <div class="kicker">The problem</div>
+    <div class="h2" style="margin:18px 0 54px">Manuals are hard to follow</div>
+    <div class="pain"><b>✕</b><span>Too many parts to tell apart</span></div>
+    <div class="pain"><b>✕</b><span>Which piece goes where?</span></div>
+    <div class="pain"><b>✕</b><span>Static drawings hide the direction</span></div>
+    <div class="pain"><b>✕</b><span>Wrong step? Take it apart, start over</span></div>
+  </div>
+</section>
+
+<!-- S3 text-only AI -->
+<section class="scene" id="s3">
+  <div class="shade" style="background:radial-gradient(ellipse at 50% 40%,#171b24,#0b0d10 70%)"></div>
+  <div style="position:absolute;left:0;right:0;top:70px;text-align:center"><div class="kicker">Today's AI answers</div></div>
+  <div class="bubble" id="s3q" style="right:300px;top:170px;background:#2a3140;max-width:760px">How do I put this microphone kit together?</div>
+  <div class="bubble card" id="s3a" style="left:300px;top:330px;width:1100px;height:470px;overflow:hidden;color:#cfd5dd">
+    <div id="s3text"></div>
+  </div>
+  <div id="s3q2" style="position:absolute;left:1360px;top:300px;font-size:260px;font-weight:800;color:var(--a);text-shadow:0 0 50px rgba(255,176,32,.5)">?</div>
+  <div style="position:absolute;right:60px;top:60px;font-size:20px;color:var(--mute)">Illustration</div>
+</section>
+
+<!-- S4 solution -->
+<section class="scene" id="s4">
+  <div class="shade" style="background:radial-gradient(ellipse at 50% 30%,#16233a,#0b0d10 70%)"></div>
+  <div id="s4logo" style="position:absolute;left:50%;top:50%;width:900px;transform:translate(-50%,-50%)">
+    <img src="assets/world-overlay-logo.svg" style="width:100%">
+    <div style="text-align:center;font-size:40px;font-weight:600;margin-top:24px;color:#dfe5ee">Turn complex manuals into visual, step-by-step instructions.</div>
+  </div>
+  <div id="s4app" class="card" style="position:absolute;left:50%;top:70px;width:1280px;height:720px;overflow:hidden;padding:0;transform:translateX(-50%)">
+    <img id="s4seq" style="width:100%;height:100%;object-fit:cover">
+  </div>
+  <div class="flow" id="s4flow">
+    <div class="card"><div class="n">01</div><div class="t">Upload the manual and a video of the parts</div><div class="m">Photos, PDF or video</div></div>
+    <div class="card"><div class="n">02</div><div class="t">AI finds every part and plans the steps</div><div class="m">Muse Spark</div></div>
+    <div class="card"><div class="n">03</div><div class="t">Each part is cut out of your own footage</div><div class="m">SAM 3.1</div></div>
+    <div class="card"><div class="n">04</div><div class="t">See each step animated and finished</div><div class="m">Muse Image</div></div>
+  </div>
+</section>
+
+<!-- S5a real input -->
+<section class="scene" id="s5a">
+  <div class="shade" style="background:radial-gradient(ellipse at 30% 50%,#1a2030,#0b0d10 70%)"></div>
+  <div class="card" style="position:absolute;left:230px;top:70px;width:520px;height:925px;overflow:hidden;padding:0;border-radius:40px;border:6px solid #2a2f37">
+    <img id="s5aseq" style="width:100%;height:100%;object-fit:cover">
+  </div>
+  <div class="badge" style="left:262px;top:100px"><i></i>Real footage · 2× speed</div>
+  <div style="position:absolute;left:900px;top:180px;width:900px">
+    <div class="kicker">A real test</div>
+    <div class="h2" style="margin:18px 0 44px">Microphone streaming kit</div>
+    <div id="s5af1" class="pain" style="font-size:40px"><b style="border-color:var(--b);color:var(--b);background:rgba(34,211,238,.12)">13</b><span>parts on the floor</span></div>
+    <div id="s5af2" class="pain" style="font-size:40px"><b style="border-color:var(--b);color:var(--b);background:rgba(34,211,238,.12);font-size:22px">ES</b><span>manual written in Spanish</span></div>
+    <div id="s5af3" class="pain" style="font-size:40px"><b style="border-color:var(--b);color:var(--b);background:rgba(34,211,238,.12);font-size:26px">1</b><span>phone video, parts filmed one by one</span></div>
+    <div class="card" id="s5aman" style="margin-top:20px;width:520px;height:390px;overflow:hidden;padding:0"><img src="assets/photos/manual.jpg" style="width:100%;height:100%;object-fit:cover"></div>
+  </div>
+</section>
+
+<!-- S5b cutouts -->
+<section class="scene" id="s5b">
+  <div class="shade" style="background:radial-gradient(ellipse at 50% 50%,#18202c,#0b0d10 70%)"></div>
+  <div style="position:absolute;left:0;right:0;top:60px;text-align:center">
+    <div class="kicker">Muse Spark + SAM 3.1</div>
+    <div class="h2" style="margin-top:14px" id="s5bh">13 parts found and cut out</div>
+  </div>
+  <div id="s5bgrid"></div>
+  <div id="s5bsteps" data-base="translateX(-50%)" style="position:absolute;left:50%;top:790px;transform:translateX(-50%);display:flex;gap:18px;align-items:center;font-size:40px;font-weight:700">
+    <span style="color:var(--a)">→</span><span><span id="s5bn" style="color:var(--a)">11</span> assembly steps planned</span>
+  </div>
+</section>
+
+<!-- S5c app steps 1-3 -->
+<section class="scene" id="s5c">
+  <div class="appframe"><img id="s5cseq"></div>
+  <div class="badge topbadge"><i></i>Live app · real result</div>
+</section>
+
+<!-- S5d montage -->
+<section class="scene" id="s5d">
+  <div class="appframe"><img id="s5dseq"></div>
+  <div class="badge topbadge"><i></i>Live app · real result · <span id="s5dstep" style="color:var(--a)"></span></div>
+</section>
+
+<!-- S5e 3D -->
+<section class="scene" id="s5e">
+  <div class="appframe"><img id="s5eseq"></div>
+  <div class="badge topbadge"><i></i>3D parts · generated from the same photos</div>
+</section>
+
+<!-- S6 vision -->
+<section class="scene" id="s6">
+  <img class="full" id="s6img" src="assets/result11.jpg" style="filter:blur(18px) brightness(.32);transform:scale(1.2)">
+  <img id="s6card" src="assets/result11.jpg" class="card" style="position:absolute;right:150px;top:190px;width:640px;height:640px;object-fit:cover;padding:0">
+  <div style="position:absolute;left:130px;top:250px;width:900px">
+    <div class="kicker">Why it matters</div>
+    <div id="s6l1" class="h2" style="margin-top:24px">Learning practical skills shouldn't depend on reading a manual.</div>
+    <div id="s6l2" style="margin-top:40px;font-size:38px;line-height:1.4;color:#d9dfe7">Visual steps make complex tasks easier to learn — and easier to do.</div>
+  </div>
+</section>
+
+<!-- S7 end -->
+<section class="scene" id="s7">
+  <div class="shade" style="background:radial-gradient(ellipse at 50% 35%,#16233a,#0b0d10 70%)"></div>
+  <img src="assets/world-overlay-logo.svg" id="s7logo" style="position:absolute;left:50%;top:90px;width:620px;transform:translateX(-50%)">
+  <div style="position:absolute;left:0;right:0;top:420px;text-align:center;font-size:70px;font-weight:700;line-height:1.3">
+    <div id="s7a">See the steps.</div><div id="s7b" style="color:var(--a)">Understand the process.</div><div id="s7c" style="color:var(--b)">Learn by doing.</div>
+  </div>
+  <div id="s7f" style="position:absolute;left:0;right:0;bottom:120px;text-align:center;font-size:28px;color:#c9d0da;line-height:1.7">
+    Built with Meta Muse Spark · SAM 3.1 · Muse Image · DINOv2<br>
+    <span style="color:var(--fg);font-weight:600">github.com/lai2570/world-overlay</span>
+  </div>
+</section>
+
+<div id="dip"></div>
+<div id="sub"></div>
+
+<script>
+let TL = null;
+const $ = id => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const out = x => 1 - Math.pow(1 - clamp(x), 3);
+const inn = (t, at, d = .5) => out((t - at) / d);   // 0→1 starting at `at`
+function show(el, k, dy = 30) { el.style.opacity = k; el.style.transform = (el.dataset.base || "") + ` translateY(${(1 - k) * dy}px)`; }
+const seqCache = {};
+function seq(img, name, frame, count) {
+  const f = Math.max(0, Math.min(count - 1, Math.floor(frame)));
+  const src = `assets/seq/${name}/${String(f).padStart(4, "0")}.jpg`;
+  if (img.getAttribute("src") !== src) img.src = src;
+  return img;
+}
+const COUNTS = {foot1: 138, foot2: 136, foot3: 135, recA: 270, recB1: 675, mont4: 113, mont5: 113, mont6: 113, mont7: 113, mont8: 113, mont9: 113, mont10: 113, montdone: 113, recC: 375};
+
+const S3TEXT = "To assemble the kit, first attach the desk clamp to the edge of your table and insert the boom arm into the clamp. Next, screw the adapter onto the threaded end of the arm, then attach the shock mount. Place the microphone in the shock mount so that the elastic cords hold it securely, and fit the foam cover over the grille. Clip the pop filter onto the arm and position it in front of the microphone. Connect the XLR end of the cable to the microphone and the 3.5 mm end to the sound card's mic input. Finally, connect the sound card to your computer using the USB adapter…";
+
+const SCENES = {
+  s1(t, d) {
+    $("s1img").style.transform = `scale(${1.04 + t * .012})`;
+    show($("s1k"), inn(t, .4)); show($("s1h"), inn(t, .8, .7));
+    [...$("s1chips").children].forEach((c, i) => show(c, inn(t, 2.8 + i * .45), 20));
+  },
+  s2(t, d) {
+    const c = $("s2card"); c.dataset.base = ""; c.style.opacity = inn(t, .2);
+    c.style.transform = `rotate(${-2 + inn(t, .2, 1) * 1}deg) scale(${1 + t * .004})`;
+    [...document.querySelectorAll("#s2 .pain")].forEach((p, i) => show(p, inn(t, 2.2 + i * 2.6), 24));
+  },
+  s3(t, d) {
+    show($("s3q"), inn(t, .3));
+    show($("s3a"), inn(t, 1.2));
+    const n = Math.floor(clamp((t - 1.6) / 5.2) * S3TEXT.length);
+    $("s3text").textContent = S3TEXT.slice(0, n);
+    const q = inn(t, 6.6, .6); $("s3q2").style.opacity = q; $("s3q2").style.transform = `scale(${.6 + .4 * q}) rotate(${(1 - q) * -12}deg)`;
+  },
+  s4(t, d) {
+    const L = $("s4logo"); const lk = inn(t, .2, .8) * (1 - inn(t, 3.6, .5));
+    L.style.opacity = lk; L.style.transform = `translate(-50%,-50%) scale(${.94 + .06 * inn(t, .2, 1.2)})`;
+    const A = $("s4app"); const ak = inn(t, 4.1, .7);
+    A.style.opacity = ak; A.style.transform = `translateX(-50%) translateY(${(1 - ak) * 40 - 30 * inn(t, 8.6, .9)}px) scale(${1 - .32 * inn(t, 8.6, .9)})`;
+    A.style.transformOrigin = "50% 0%";
+    seq($("s4seq"), "recA", (t - 4.1) * 30, COUNTS.recA);
+    [...$("s4flow").children].forEach((c, i) => show(c, inn(t, 9.2 + i * .55), 30));
+  },
+  s5a(t, d) {
+    const clip = t < 4.5 ? ["foot1", t] : t < 9 ? ["foot2", t - 4.5] : ["foot3", t - 9];
+    seq($("s5aseq"), clip[0], clip[1] * 30, COUNTS[clip[0]]);
+    show($("s5af1"), inn(t, .9)); show($("s5af2"), inn(t, 5)); show($("s5af3"), inn(t, 8.2)); show($("s5aman"), inn(t, 5.3), 20);
+  },
+  s5b(t, d) {
+    const g = $("s5bgrid");
+    if (!g.children.length) {
+      TL.names.forEach((n, i) => {
+        const el = document.createElement("div"); el.className = "cut";
+        const row = i < 7 ? 0 : 1, col = row ? i - 7 : i, per = row ? 6 : 7;
+        el.style.left = (960 - per * 125 + col * 250) + "px"; el.style.top = (215 + row * 280) + "px";
+        el.innerHTML = `<img src="assets/cut/${String(i + 1).padStart(2, "0")}.png"><span></span>`;
+        el.lastChild.textContent = n; g.appendChild(el);
+      });
+    }
+    [...g.children].forEach((c, i) => { const k = inn(t, .6 + i * .32, .45); c.style.opacity = k; c.style.transform = `scale(${.7 + .3 * k})`; });
+    show($("s5bsteps"), inn(t, 6.4)); $("s5bn").textContent = Math.round(11 * clamp((t - 6.4) / 1.2));
+  },
+  s5c(t, d) { seq($("s5cseq"), "recB1", t * 30, COUNTS.recB1); },
+  s5d(t, d) {
+    const seg = 3.75, k = Math.min(7, Math.floor(t / seg)), lt = t - k * seg;
+    const name = k < 7 ? "mont" + (k + 4) : "montdone";
+    seq($("s5dseq"), name, lt * 30, COUNTS[name]);
+    $("s5dstep").textContent = k < 7 ? `Step ${k + 4} of 11` : "All 11 steps done";
+  },
+  s5e(t, d) { seq($("s5eseq"), "recC", t * 30, COUNTS.recC); },
+  s6(t, d) {
+    $("s6img").style.transform = `scale(${1.2 + t * .006})`;
+    const c = $("s6card"); c.style.opacity = inn(t, .3, .8); c.style.transform = `translateY(${(1 - inn(t, .3, .8)) * 30}px) scale(${1 + t * .004})`;
+    show($("s6l1"), inn(t, .7, .8)); show($("s6l2"), inn(t, 6.2, .8));
+  },
+  s7(t, d) {
+    show($("s7logo"), inn(t, .2, .8)); $("s7logo").dataset.base = "translateX(-50%)"; show($("s7logo"), inn(t, .2, .8));
+    show($("s7a"), inn(t, .6)); show($("s7b"), inn(t, 2.1)); show($("s7c"), inn(t, 3.6)); show($("s7f"), inn(t, 4.6));
+  },
+};
+
+async function setT(T) {
+  const wait = [];
+  const FADE = .3;
+  let dip = 0;
+  for (const s of TL.scenes) {
+    const el = $(s.id), lt = T - s.start;
+    const on = lt >= 0 && lt < s.dur;
+    el.style.opacity = on ? 1 : 0;
+    if (on) {
+      SCENES[s.id](lt, s.dur);
+      if (lt < FADE && s.start > 0) dip = Math.max(dip, 1 - lt / FADE);
+      if (s.dur - lt < FADE) dip = Math.max(dip, 1 - (s.dur - lt) / FADE);
+      el.querySelectorAll("img").forEach(i => wait.push(i.decode().catch(() => {})));
+    }
+  }
+  if (T < .5) dip = Math.max(dip, 1 - T / .5);
+  $("dip").style.opacity = ease(dip);
+  const sub = TL.subs.find(s => T >= s.start && T < s.end + .15);
+  const sb = $("sub");
+  if (sub) { sb.textContent = sub.text; sb.style.opacity = 1; } else sb.style.opacity = 0;
+  await Promise.all(wait);
+  await document.fonts.ready;
+  return true;
+}
+async function init(tl) { TL = tl; await setT(0); return true; }
+</script>
+</body></html>

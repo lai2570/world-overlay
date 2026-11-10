@@ -1,7 +1,13 @@
 .env
 .venv/
-out/
-samples/
+out/*
+!out/parts_sample.json
+!out/parts_sample_3d/
+!out/parts_sample_en_3d/
+!out/mic_parts_guide.json
 __pycache__/
 certs/
 users.json
+video/work/
+video/assets/seq/
+video/out/

@@ -1,0 +1,254 @@
+{
+ "scenes": [
+  {
+   "id": "s1",
+   "start": 0,
+   "dur": 7.5
+  },
+  {
+   "id": "s2",
+   "start": 7.5,
+   "dur": 16.25
+  },
+  {
+   "id": "s3",
+   "start": 23.75,
+   "dur": 10
+  },
+  {
+   "id": "s4",
+   "start": 33.75,
+   "dur": 15
+  },
+  {
+   "id": "s5a",
+   "start": 48.75,
+   "dur": 13.75
+  },
+  {
+   "id": "s5b",
+   "start": 62.5,
+   "dur": 12.5
+  },
+  {
+   "id": "s5c",
+   "start": 75.0,
+   "dur": 22.5
+  },
+  {
+   "id": "s5d",
+   "start": 97.5,
+   "dur": 30
+  },
+  {
+   "id": "s5e",
+   "start": 127.5,
+   "dur": 12.5
+  },
+  {
+   "id": "s6",
+   "start": 140.0,
+   "dur": 17.5
+  },
+  {
+   "id": "s7",
+   "start": 157.5,
+   "dur": 10
+  }
+ ],
+ "vo": [
+  {
+   "id": "s1",
+   "start": 1.0,
+   "dur": 5.029
+  },
+  {
+   "id": "s2",
+   "start": 8.1,
+   "dur": 11.995
+  },
+  {
+   "id": "s3",
+   "start": 24.35,
+   "dur": 7.21
+  },
+  {
+   "id": "s4",
+   "start": 34.35,
+   "dur": 10.794
+  },
+  {
+   "id": "s5a",
+   "start": 49.35,
+   "dur": 10.159
+  },
+  {
+   "id": "s5b",
+   "start": 63.1,
+   "dur": 9.794
+  },
+  {
+   "id": "s5c",
+   "start": 75.6,
+   "dur": 12.024
+  },
+  {
+   "id": "s5d",
+   "start": 98.1,
+   "dur": 7.069
+  },
+  {
+   "id": "s5e",
+   "start": 128.1,
+   "dur": 6.455
+  },
+  {
+   "id": "s6",
+   "start": 140.6,
+   "dur": 13.829
+  },
+  {
+   "id": "s7",
+   "start": 158.1,
+   "dur": 5.804
+  }
+ ],
+ "subs": [
+  {
+   "start": 1.0,
+   "end": 6.029,
+   "text": "Have you ever tried to assemble something, but had no idea where to start?"
+  },
+  {
+   "start": 8.1,
+   "end": 13.539,
+   "text": "Traditional manuals are full of diagrams, symbols, and technical instructions."
+  },
+  {
+   "start": 13.539,
+   "end": 16.05,
+   "text": "You can see the parts on your table,"
+  },
+  {
+   "start": 16.05,
+   "end": 20.095,
+   "text": "but figuring out which part goes where is still confusing."
+  },
+  {
+   "start": 24.35,
+   "end": 26.906,
+   "text": "Even when AI explains the instructions,"
+  },
+  {
+   "start": 26.906,
+   "end": 31.56,
+   "text": "text-only answers still leave you guessing how each part fits together."
+  },
+  {
+   "start": 34.35,
+   "end": 35.755,
+   "text": "Meet World Overlay."
+  },
+  {
+   "start": 35.755,
+   "end": 40.413,
+   "text": "Upload your instruction manual and a quick video of your parts,"
+  },
+  {
+   "start": 40.413,
+   "end": 45.144,
+   "text": "and AI turns them into visual, step-by-step assembly animations."
+  },
+  {
+   "start": 49.35,
+   "end": 54.148,
+   "text": "Here is a real test: a microphone streaming kit with thirteen parts,"
+  },
+  {
+   "start": 54.148,
+   "end": 56.405,
+   "text": "and a manual written in Spanish."
+  },
+  {
+   "start": 56.405,
+   "end": 59.51,
+   "text": "We filmed the parts one by one with a phone."
+  },
+  {
+   "start": 63.1,
+   "end": 67.114,
+   "text": "Muse Spark watches the video and reads the manual."
+  },
+  {
+   "start": 67.114,
+   "end": 72.895,
+   "text": "SAM 3.1 cuts out every part, and Muse Spark plans eleven assembly steps."
+  },
+  {
+   "start": 75.6,
+   "end": 80.41,
+   "text": "Instead of decoding every diagram yourself, simply follow the animation."
+  },
+  {
+   "start": 80.41,
+   "end": 83.483,
+   "text": "Each part flies to the spot where it connects,"
+  },
+  {
+   "start": 83.483,
+   "end": 87.624,
+   "text": "and Muse Image shows what the step looks like when it is done."
+  },
+  {
+   "start": 98.1,
+   "end": 100.853,
+   "text": "Step by step, the kit comes together,"
+  },
+  {
+   "start": 100.853,
+   "end": 105.169,
+   "text": "from the desk clamp to the sound card and the USB adapter."
+  },
+  {
+   "start": 128.1,
+   "end": 129.827,
+   "text": "Want a closer look?"
+  },
+  {
+   "start": 129.827,
+   "end": 134.554,
+   "text": "Spin any part in 3D, generated from the same photos."
+  },
+  {
+   "start": 140.6,
+   "end": 146.517,
+   "text": "We believe learning practical skills should not depend on how well you can read a manual."
+  },
+  {
+   "start": 146.517,
+   "end": 150.773,
+   "text": "World Overlay turns technical knowledge into visual experiences,"
+  },
+  {
+   "start": 150.773,
+   "end": 154.429,
+   "text": "making complex tasks easier to learn, and easier to do."
+  },
+  {
+   "start": 158.1,
+   "end": 159.663,
+   "text": "See the steps."
+  },
+  {
+   "start": 159.663,
+   "end": 162.23,
+   "text": "Understand the process."
+  },
+  {
+   "start": 162.23,
+   "end": 163.904,
+   "text": "Learn by doing."
+  }
+ ],
+ "total": 167.5
+}

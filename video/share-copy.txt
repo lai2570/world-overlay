@@ -1,0 +1,1 @@
+We pointed a phone at a microphone kit with 13 parts and a manual in Spanish. WORLD OVERLAY turned it into 11 animated assembly steps, each with a picture of what "done" looks like. Built with Meta Muse Spark, SAM 3.1 and Muse Image.

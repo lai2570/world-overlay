@@ -1,0 +1,42 @@
+{
+ "goal": "A condenser microphone streaming kit on a boom arm and mini tripod, connected to a phone or computer through a sound card and cables.",
+ "names": {
+  "防噴濾網": "Pop filter",
+  "避震架": "Shock mount",
+  "金屬懸臂": "Boom arm",
+  "電容麥克風": "Condenser mic",
+  "小轉接座": "Small adapter",
+  "麥克風夾": "Mic clip",
+  "海綿套": "Foam cover",
+  "迷你三腳架": "Mini tripod",
+  "桌邊夾": "Desk clamp",
+  "音效卡": "Sound card",
+  "麥克風訊號線": "Mic cable",
+  "白色連接線": "White cables",
+  "USB音效轉接頭": "USB audio adapter"
+ },
+ "steps": [
+  {"instruction": "Insert the post at the bottom of the boom arm into the hole on top of the desk clamp and tighten it.",
+   "why": "The desk clamp photo shows a round hole on top and a locking knob on the side; the post at the bottom of the arm matches its width, and the manual lists the folding arm and clamp together as the support set."},
+  {"instruction": "Screw the mic clip onto the top of the mini tripod.",
+   "why": "The tripod has a threaded post in the center of its top, and one end of the mic clip has a matching threaded socket; the small clip sits on the small stand as a desktop backup holder."},
+  {"instruction": "Screw the small adapter onto the threaded tip at the front of the boom arm.",
+   "why": "The front of the arm has a protruding threaded tip and the adapter has a threaded hole underneath of the same size; it converts the thread for the mount."},
+  {"instruction": "Screw the shock mount onto the top of the small adapter.",
+   "why": "The end of the shock mount's handle has a threaded hole and the adapter has a threaded stud on top; the mount is about twice the adapter's width, going from small to large to carry the mic."},
+  {"instruction": "Insert the condenser mic into the center of the shock mount from above.",
+   "why": "The center of the shock mount is a hollow ring that matches the mic's diameter; the cylindrical mic is held by the elastic cords, which isolates vibration."},
+  {"instruction": "Pull the foam cover over the mesh grille at the top of the mic.",
+   "why": "The soft foam cover's opening matches the mic's silver grille, and the manual lists the foam as fitting directly over the microphone."},
+  {"instruction": "Clamp the pop filter's end clip onto the tube of the boom arm.",
+   "why": "The end of the pop filter's gooseneck has a clip with a knob whose opening fits the arm's tube; the gooseneck can position the screen in front of the mic."},
+  {"instruction": "Plug the XLR end of the mic cable into the bottom of the mic.",
+   "why": "The bottom of the mic has a round pin socket, and one end of the black cable is the matching three-pin silver XLR connector."},
+  {"instruction": "Connect the 3.5 mm end of the cable to the mic input on the sound card.",
+   "why": "The sound card has several 3.5 mm jacks on its side and the other end of the cable is a 3.5 mm plug; the sound card collects the signals."},
+  {"instruction": "Plug one end of a white cable into the matching jack on the sound card.",
+   "why": "The white cables have 3.5 mm plugs that match the sound card's round jacks, and the manual uses these cables to connect a phone and the LIVE ports."},
+  {"instruction": "Connect the USB audio adapter to the white cable, and plug the USB end into the computer.",
+   "why": "The white adapter shows two labeled jacks that fit the 3.5 mm plug of the white cable, and the manual describes it as the USB-to-audio adapter for computers."}
+ ]
+}

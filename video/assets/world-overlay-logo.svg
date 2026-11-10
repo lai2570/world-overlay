@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" role="img" aria-labelledby="title desc">
+  <title id="title">World Overlay</title>
+  <desc id="desc">A glowing world overlay mark with layered orbital lines</desc>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c5cff"/><stop offset=".52" stop-color="#31d6d0"/><stop offset="1" stop-color="#ff4f86"/>
+    </linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="960" height="320" rx="56" fill="#0a1021"/>
+  <g transform="translate(76 48)" fill="none" stroke="url(#g)" filter="url(#glow)">
+    <circle cx="112" cy="112" r="78" stroke-width="18" opacity=".95"/>
+    <path d="M112 24v88h88M112 112H34M112 112v88" stroke-width="12"/>
+    <circle cx="112" cy="112" r="104" stroke-width="2" opacity=".4"/>
+  </g>
+  <text x="300" y="146" fill="#fff" font-family="Inter,system-ui,sans-serif" font-size="62" font-weight="750" letter-spacing="5">WORLD</text>
+  <text x="300" y="216" fill="url(#g)" font-family="Inter,system-ui,sans-serif" font-size="62" font-weight="750" letter-spacing="5">OVERLAY</text>
+</svg>

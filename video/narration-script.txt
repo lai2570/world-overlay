@@ -1,0 +1,24 @@
+WORLD OVERLAY demo video - narration (start time in the video)
+
+[0:01.00] Have you ever tried to assemble something, but had no idea where to start?
+
+[0:08.10] Traditional manuals are full of diagrams, symbols, and technical instructions. You can see the parts on your table, but figuring out which part goes where is still confusing.
+
+[0:24.35] Even when AI explains the instructions, text-only answers still leave you guessing how each part fits together.
+
+[0:34.35] Meet World Overlay. Upload your instruction manual and a quick video of your parts, and AI turns them into visual, step-by-step assembly animations.
+
+[0:49.35] Here is a real test: a microphone streaming kit with thirteen parts, and a manual written in Spanish. We filmed the parts one by one with a phone.
+
+[1:03.10] Muse Spark watches the video and reads the manual. SAM 3.1 cuts out every part, and Muse Spark plans eleven assembly steps.
+
+[1:15.60] Instead of decoding every diagram yourself, simply follow the animation. Each part flies to the spot where it connects, and Muse Image shows what the step looks like when it is done.
+
+[1:38.10] Step by step, the kit comes together, from the desk clamp to the sound card and the USB adapter.
+
+[2:08.10] Want a closer look? Spin any part in 3D, generated from the same photos.
+
+[2:20.60] We believe learning practical skills should not depend on how well you can read a manual. World Overlay turns technical knowledge into visual experiences, making complex tasks easier to learn, and easier to do.
+
+[2:38.10] See the steps. Understand the process. Learn by doing.
+
